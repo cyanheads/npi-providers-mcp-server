@@ -1,0 +1,9 @@
+{
+  "npi-providers-mcp-server": {
+    "command": "npx",
+    "args": ["-y", "@cyanheads/npi-providers-mcp-server"],
+    "env": {
+      "MCP_TRANSPORT_TYPE": "stdio"
+    }
+  }
+}

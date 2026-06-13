@@ -1,0 +1,20 @@
+{
+  "name": "npi-providers-mcp-server",
+  "version": "0.1.0",
+  "description": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes.",
+  "author": {
+    "name": "cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/npi-providers-mcp-server",
+  "repository": "https://github.com/cyanheads/npi-providers-mcp-server",
+  "license": "Apache-2.0",
+  "mcpServers": {
+    "npi-providers-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@cyanheads/npi-providers-mcp-server"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio"
+      }
+    }
+  }
+}

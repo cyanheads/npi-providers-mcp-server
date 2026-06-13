@@ -1,0 +1,127 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cyanheads/npi-providers-mcp-server",
+  "description": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes.",
+  "repository": {
+    "url": "https://github.com/cyanheads/npi-providers-mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@cyanheads/npi-providers-mcp-server",
+      "runtimeHint": "bun",
+      "version": "0.1.0",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "run"
+        },
+        {
+          "type": "positional",
+          "value": "start:stdio"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "MCP_LOG_LEVEL",
+          "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
+          "format": "string",
+          "isRequired": false,
+          "default": "info"
+        },
+        {
+          "name": "NPPES_API_BASE_URL",
+          "description": "NPPES NPI Registry API base URL. Override for a private mirror or testing.",
+          "format": "string",
+          "isRequired": false,
+          "default": "https://npiregistry.cms.hhs.gov/api"
+        },
+        {
+          "name": "NPPES_TIMEOUT_MS",
+          "description": "Per-request HTTP timeout for NPPES calls, in milliseconds.",
+          "format": "string",
+          "isRequired": false,
+          "default": "15000"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@cyanheads/npi-providers-mcp-server",
+      "runtimeHint": "bun",
+      "version": "0.1.0",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "run"
+        },
+        {
+          "type": "positional",
+          "value": "start:http"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "MCP_HTTP_HOST",
+          "description": "The hostname for the HTTP server.",
+          "format": "string",
+          "isRequired": false,
+          "default": "127.0.0.1"
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "The port to run the HTTP server on.",
+          "format": "string",
+          "isRequired": false,
+          "default": "3010"
+        },
+        {
+          "name": "MCP_HTTP_ENDPOINT_PATH",
+          "description": "The endpoint path for the MCP server.",
+          "format": "string",
+          "isRequired": false,
+          "default": "/mcp"
+        },
+        {
+          "name": "MCP_AUTH_MODE",
+          "description": "Authentication mode to use: 'none', 'jwt', or 'oauth'.",
+          "format": "string",
+          "isRequired": false,
+          "default": "none"
+        },
+        {
+          "name": "MCP_LOG_LEVEL",
+          "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
+          "format": "string",
+          "isRequired": false,
+          "default": "info"
+        },
+        {
+          "name": "NPPES_API_BASE_URL",
+          "description": "NPPES NPI Registry API base URL. Override for a private mirror or testing.",
+          "format": "string",
+          "isRequired": false,
+          "default": "https://npiregistry.cms.hhs.gov/api"
+        },
+        {
+          "name": "NPPES_TIMEOUT_MS",
+          "description": "Per-request HTTP timeout for NPPES calls, in milliseconds.",
+          "format": "string",
+          "isRequired": false,
+          "default": "15000"
+        }
+      ],
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:3010/mcp"
+      }
+    }
+  ]
+}
