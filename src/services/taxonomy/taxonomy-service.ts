@@ -52,6 +52,21 @@ function tokenize(s: string): string[] {
 }
 
 /**
+ * Generic role words that people append to lay specialty phrases. They usually
+ * are not part of the NUCC specialty label, so keeping them in a strict AND
+ * query makes useful phrases like "heart doctor" fail. Keep an all-stop query
+ * unchanged so terms such as "doctor" still get an honest no-match.
+ */
+const QUERY_STOP_TOKENS = new Set(['doctor', 'special', 'provider', 'md', 'do']);
+
+/** Tokenize a user query and drop generic lay-role words when other signal remains. */
+function tokenizeQuery(s: string): string[] {
+  const tokens = tokenize(s);
+  const withoutStops = tokens.filter((t) => !QUERY_STOP_TOKENS.has(t));
+  return withoutStops.length > 0 ? withoutStops : tokens;
+}
+
+/**
  * Lay-term → NUCC-formal token aliases, applied to the *query* only (the index keeps
  * the registry's own vocabulary). A handful of common specialist words share no stem
  * with the taxonomy's formal specialty name, so strict-token resolve would miss the
@@ -68,6 +83,12 @@ function tokenize(s: string): string[] {
  */
 const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   cardiolog: ['cardiovascular'],
+  cancer: ['oncolog'],
+  ent: ['otolaryngolog'],
+  eye: ['ophthalmolog'],
+  heart: ['cardiovascular'],
+  kidney: ['nephrolog'],
+  obgyn: ['obstetric', 'gynecolog'],
   pulmonolog: ['pulmonary'],
   surgeon: ['surgery', 'surgical'],
 };
@@ -181,7 +202,7 @@ export class TaxonomyService {
    * a cardiology pharmacist, technician, hospital, or a narrow cardiology sub-specialty.
    */
   resolve(query: string, limit: number): TaxonomyEntry[] {
-    const tokens = tokenize(query);
+    const tokens = tokenizeQuery(query);
     if (tokens.length === 0) return [];
     const variants = tokens.map(matchVariants);
     const hasAliases = variants.some((v) => v.aliases.length > 0);

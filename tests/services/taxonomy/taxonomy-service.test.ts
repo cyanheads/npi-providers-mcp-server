@@ -43,6 +43,17 @@ describe('TaxonomyService', () => {
       expect(svc.resolve('pulmonologist', 10)[0]?.code).toBe('207RP1001X'); // Pulmonary Disease
     });
 
+    it('resolves lay specialty phrases after dropping generic role words', () => {
+      expect(svc.resolve('heart doctor', 10)[0]?.code).toBe('207RC0000X');
+      expect(svc.resolve('kidney specialist', 10)[0]?.code).toBe('207RN0300X'); // Nephrology
+      expect(svc.resolve('eye doctor', 10)[0]?.code).toBe('207W00000X'); // Ophthalmology
+    });
+
+    it('resolves common lay abbreviations without substring false positives', () => {
+      expect(svc.resolve('ENT', 10)[0]?.code).toBe('207Y00000X'); // Otolaryngology
+      expect(svc.resolve('obgyn', 10)[0]?.code).toBe('207V00000X'); // Obstetrics & Gynecology
+    });
+
     it('ranks physician entries above non-physician ones carrying the term as a modifier', () => {
       // "cardiologist" must not surface "Cardiology Pharmacist"/"Cardiology Technician" first.
       const top = svc.resolve('cardiologist', 1)[0];
