@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/npi-providers-mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes via MCP. STDIO or Streamable HTTP.",
   "mcpName": "io.github.cyanheads/npi-providers-mcp-server",
   "type": "module",
