@@ -19,6 +19,17 @@ function splitName(nameSearch: string): { firstName?: string; lastName?: string 
   return { firstName: parts[0] as string, lastName: parts[parts.length - 1] as string };
 }
 
+/**
+ * Match a normalized row's postal code against the requested one, tolerating the
+ * 5-digit vs 9-digit ZIP+4 split: the shorter value must be a prefix of the longer.
+ */
+function postalCodeMatches(rowPostal: string | undefined, requested: string): boolean {
+  const row = rowPostal?.trim() ?? '';
+  const req = requested.trim();
+  if (!row || !req) return false;
+  return row.length <= req.length ? req.startsWith(row) : row.startsWith(req);
+}
+
 const ProviderRowSchema = z
   .object({
     npi: z
@@ -40,6 +51,7 @@ const ProviderRowSchema = z
       ),
     city: z.string().optional().describe('Practice-location city when present.'),
     state: z.string().optional().describe('Practice-location state when present.'),
+    postalCode: z.string().optional().describe('Practice-location postal/ZIP code when present.'),
     status: z
       .enum(['active', 'deactivated'])
       .describe('Registry status — never treat a deactivated NPI as current.'),
@@ -48,7 +60,7 @@ const ProviderRowSchema = z
 
 export const searchProvidersTool = tool('npi_search_providers', {
   description:
-    'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. The specialty filter accepts plain-language terms (e.g. "cardiologist", "endocrinologist in Seattle") and resolves them through the bundled NUCC taxonomy to the registry\'s exact taxonomy descriptions before searching; the resolved taxonomy is echoed back so you can see what was actually searched. Returns a compact row per provider — NPI, name, primary specialty, city/state, type, and active/deactivated status — suitable for disambiguation; call npi_get_provider with an NPI for the full record. At least one search criterion is required, and the registry rejects state-only searches (pair state with another filter). The registry never reports a true match total and only the first 1200 matches are reachable, so broad queries are capped — narrow with more filters.',
+    'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. The specialty filter accepts plain-language terms (e.g. "cardiologist", "pediatric cardiologist") and resolves them through the bundled NUCC taxonomy to the registry\'s exact taxonomy descriptions before searching; the resolved taxonomy is echoed back so you can see what was actually searched. Pass location as the dedicated city/state/postal_code inputs, not inside specialty. Returns a compact row per provider — NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status — suitable for disambiguation; call npi_get_provider with an NPI for the full record. At least one search criterion is required, and the registry rejects state-only searches (pair state with another filter). The registry does not treat location as a hard filter for specialty searches, so location-constrained results are post-filtered server-side to the requested city/state/postal_code. The registry never reports a true match total and only the first 1200 matches are reachable, so broad queries are capped — narrow with more filters.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   errors: [
@@ -125,11 +137,16 @@ export const searchProvidersTool = tool('npi_search_providers', {
       ),
     city: z.string().optional().describe('Practice-location city.'),
     state: z
-      .string()
-      .regex(/^[A-Z]{2}$/, 'State must be a 2-letter uppercase code (e.g. "WA").')
+      .union([
+        z.literal(''),
+        z
+          .string()
+          .regex(/^[A-Z]{2}$/, 'State must be a 2-letter uppercase code (e.g. "WA").')
+          .describe('2-letter state code (e.g. "WA").'),
+      ])
       .optional()
       .describe(
-        '2-letter state code (e.g. "WA"). The registry rejects state-only searches — pair it with another criterion.',
+        '2-letter state code (e.g. "WA"). The registry rejects state-only searches — pair it with another criterion. Blank values from form-based clients are treated as omitted.',
       ),
     postal_code: z
       .string()
@@ -281,19 +298,58 @@ export const searchProvidersTool = tool('npi_search_providers', {
     if (resolvedTaxonomies) ctx.enrich({ resolvedTaxonomies });
     if (taxonomyDescription) ctx.enrich({ appliedTaxonomyDescription: taxonomyDescription });
 
-    if (providers.length === 0) {
-      ctx.enrich.notice(
-        'No providers matched. The registry uses substring matching on specialty and rejects state-only searches — try broadening, verifying the specialty resolution, or pairing state with a name/city.',
-      );
-    } else if (providers.length >= input.limit) {
-      // Page is full — disclose page-size-not-total plus the hard 1200 ceiling.
-      ctx.enrich.truncated({ shown: providers.length, cap: input.limit });
-      ctx.enrich.notice(
-        'result_count is the returned page size, not a grand total — the registry never reports the true match count, so at least this many match. More may exist: page with skip (max 1000) or narrow with more filters. Only the first 1200 matches are reachable.',
-      );
+    // NPPES does not treat the requested city/state/postal_code as a hard filter
+    // when taxonomy_description is present — it returns providers outside the
+    // requested location. Post-filter the normalized rows by whichever location
+    // fields the caller actually provided so out-of-location rows aren't presented
+    // as matches. City compares case-insensitively (rows are upstream-uppercase);
+    // postal_code prefix-matches to tolerate the 5-vs-9-digit ZIP+4 split.
+    const rawCount = providers.length;
+    const providersInLocation = providers.filter((p) => {
+      if (state && p.state?.trim().toUpperCase() !== state.toUpperCase()) return false;
+      if (city && p.city?.trim().toUpperCase() !== city.toUpperCase()) return false;
+      if (postalCode && !postalCodeMatches(p.postalCode, postalCode)) return false;
+      return true;
+    });
+    const filteredOut = rawCount - providersInLocation.length;
+
+    // A full upstream page means more may match upstream regardless of how many
+    // survived the location post-filter — key truncation on the raw page size so
+    // post-filtering never hides a full page. `shown` reflects the kept rows.
+    const fullPage = rawCount >= input.limit;
+    if (fullPage) {
+      ctx.enrich.truncated({ shown: providersInLocation.length, cap: input.limit });
     }
 
-    return { providers };
+    // ctx.enrich.notice is last-wins, so assemble one notice from fragments.
+    const noticeParts: string[] = [];
+    if (rawCount === 0) {
+      noticeParts.push(
+        'No providers matched. The registry uses substring matching on specialty and rejects state-only searches — try broadening, verifying the specialty resolution, or pairing state with a name/city.',
+      );
+    } else if (providersInLocation.length === 0) {
+      // Upstream matched the specialty but nothing in the requested location. The
+      // specialty DID resolve and match, so don't emit the generic broaden notice.
+      noticeParts.push(
+        `${rawCount} provider(s) matched but none were in the requested location; the registry does not treat location as a hard filter for specialty searches. Broaden or drop the location, or pass taxonomy_description.`,
+      );
+    } else {
+      if (filteredOut > 0) {
+        noticeParts.push(
+          `${filteredOut} out-of-location row(s) the registry returned were filtered out.`,
+        );
+      }
+      if (fullPage) {
+        noticeParts.push(
+          'result_count is the returned page size, not a grand total — the registry never reports the true match count, so at least this many match. More may exist: page with skip (max 1000) or narrow with more filters. Only the first 1200 matches are reachable.',
+        );
+      }
+    }
+    if (noticeParts.length > 0) {
+      ctx.enrich.notice(noticeParts.join(' '));
+    }
+
+    return { providers: providersInLocation };
   },
 
   format: (result) => {
@@ -310,7 +366,8 @@ export const searchProvidersTool = tool('npi_search_providers', {
         );
       }
       const loc = [p.city, p.state].filter(Boolean).join(', ');
-      if (loc) lines.push(`**Location:** ${loc}`);
+      const locWithZip = [loc, p.postalCode].filter(Boolean).join(' ');
+      if (locWithZip) lines.push(`**Location:** ${locWithZip}`);
     }
     return [{ type: 'text', text: lines.join('\n') }];
   },

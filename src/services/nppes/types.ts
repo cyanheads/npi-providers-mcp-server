@@ -241,6 +241,7 @@ export interface ProviderSummary {
   credential?: string;
   name: string;
   npi: string;
+  postalCode?: string;
   primaryTaxonomy?: { code: string; description?: string };
   state?: string;
   status: ProviderStatus;

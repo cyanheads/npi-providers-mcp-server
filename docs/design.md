@@ -134,7 +134,7 @@ providers: Array<{
   name: string;                 // assembled "First Last" or organization_name
   credential?: string;
   primaryTaxonomy?: { code: string; description: string };  // the `primary: true` entry
-  city?: string; state?: string;
+  city?: string; state?: string; postalCode?: string;
   status: 'active' | 'deactivated';
 }>
 ```
@@ -142,8 +142,9 @@ providers: Array<{
 **Enrichment** (`ctx.enrich` — reaches both client surfaces):
 
 - `ctx.enrich.echo(...)` — the resolved `taxonomy_description`(s) the `specialty` term mapped to (so the agent sees what was actually searched), plus the parsed criteria.
-- `ctx.enrich.truncated({ shown, cap })` — when the returned page hit `limit`. Paired with a note: `result_count` is page size, not a grand total; more may exist; narrow filters or page with `skip` (≤1000).
-- `ctx.enrich.notice(...)` — empty results: suggest broadening, checking the specialty resolution, or dropping `state`-only.
+- **Location post-filter** — when `city`, `state`, or `postal_code` is provided, the normalized rows are filtered server-side to the requested location, because NPPES does **not** treat location as a hard filter for specialty searches and returns out-of-location rows (`city` case-insensitive; `postal_code` prefix-matched to tolerate 5-vs-9-digit ZIP+4). The row carries `postalCode` so `postal_code` has something to filter against.
+- `ctx.enrich.truncated({ shown, cap })` — when the *raw upstream page* hit `limit` (keyed on the pre-filter count, so post-filtering never hides a full page). `shown` is the count of rows kept after the location filter. Paired with a note: `result_count` is page size, not a grand total; more may exist; narrow filters or page with `skip` (≤1000).
+- `ctx.enrich.notice(...)` — one notice assembled from fragments (last-wins): empty upstream result → broaden / check specialty resolution / drop `state`-only; upstream matched but nothing in the requested location → a distinct notice naming that NPPES doesn't hard-filter location; some rows dropped by the location filter → how many were filtered out.
 
 **Errors:**
 
@@ -248,6 +249,7 @@ Only `npi_get_provider` makes ≥1 upstream call per item (fan-out); `npi_search
 - **No total match count.** The registry never reports how many providers match a query — only the returned page. Counts are always "at least N."
 - **1200-match reachable ceiling.** Broad queries (e.g. `last_name=smith`) have far more than 1200 matches, but only the first 1200 are paginable; the rest are unreachable without narrower filters. This is an upstream constraint the server discloses but can't remove.
 - **Substring taxonomy matching upstream.** Even a NUCC-resolved `taxonomy_description` is matched as a substring by the API, so an over-broad description can pull adjacent specialties. Resolution narrows this but can't fully constrain it; the echoed match lets the agent judge.
+- **Location is not an upstream hard filter for specialty searches.** When `taxonomy_description` is present, NPPES returns providers outside the requested `city`/`state`/`postal_code` (confirmed live — e.g. a Seattle, WA cardiologist search returns Salt Lake City, UT rows whose own `LOCATION` address is out-of-state). The server post-filters the normalized rows to the requested location and discloses how many were dropped, but this is a server-side correction of upstream behavior, not an upstream capability.
 - **US-only, NPI-holders-only.** NPPES covers only US providers enumerated with an NPI. No international providers, no providers who never obtained an NPI.
 
 ---

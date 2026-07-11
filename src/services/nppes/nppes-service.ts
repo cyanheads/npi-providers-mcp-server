@@ -227,6 +227,7 @@ export class NppesService {
       ...field('primaryTaxonomy', pickPrimaryTaxonomy(raw)),
       ...field('city', trimmed(primaryAddress?.city)),
       ...field('state', trimmed(primaryAddress?.state)),
+      ...field('postalCode', trimmed(primaryAddress?.postal_code)),
     };
   }
 
