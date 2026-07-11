@@ -1,6 +1,6 @@
 {
   "name": "npi-providers-mcp-server",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes.",
   "author": {
     "name": "cyanheads",
