@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.6](changelog/0.1.x/0.1.6.md) — 2026-07-11
+
+npi_lookup_taxonomy: resolve lay-term/abbreviation specialties, page truncated results via skip, and attribute the bundled NUCC taxonomy to AMA/NUCC (#1, #7, #2)
+
 ## [0.1.5](changelog/0.1.x/0.1.5.md) — 2026-07-11
 
 npi_get_provider: drop the NPPES placeholder sentinel on name fields, stop conflating upstream failures with missing NPIs, and decode more record/endpoint fields (#6, #8, #9)

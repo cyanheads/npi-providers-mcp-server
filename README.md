@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.1.5-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/npi-providers-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/%40cyanheads%2Fnpi-providers-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/npi-providers-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.14-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.1.6-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/npi-providers-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^1.29.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/%40cyanheads%2Fnpi-providers-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/npi-providers-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^6.0.3-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.3.14-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -63,9 +63,11 @@ Decode one or more NPIs into fully populated provider profiles — the tool to t
 
 Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline from the bundled code set.
 
-- `resolve` — turn a plain-language specialty into matching taxonomy codes and canonical descriptions (the value the search tools filter on)
+- `resolve` — turn a plain-language specialty into matching taxonomy codes and canonical descriptions (the value the search tools filter on); plain-language phrasing ("heart doctor", "eye doctor") and common abbreviations ("ent", "obgyn") resolve to the right physician entry
 - `get` — return the full entry for an exact taxonomy code
 - `browse` — walk the hierarchy (grouping → classification → specialization), filterable by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2)
+
+`resolve` and `browse` cap results at `limit` (≤50) and disclose `truncated`; page past the cap with `skip` (raise it by `limit` each call, same query/filters) so every bundled entry stays reachable. `skip` is ignored for `get`.
 
 ## Resources and prompts
 
@@ -294,4 +296,4 @@ Apache-2.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
-Provider data from the [CMS NPPES NPI Registry](https://npiregistry.cms.hhs.gov/) (public domain). Specialty codes from the [NUCC Health Care Provider Taxonomy](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40) (NUCC, bundled).
+Provider data from the [CMS NPPES NPI Registry](https://npiregistry.cms.hhs.gov/) (public domain). The bundled specialty codes are the [NUCC Health Care Provider Taxonomy](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40), © American Medical Association on behalf of the National Uniform Claim Committee (NUCC), redistributed unmodified beyond formatting under the [NUCC permission](https://www.nucc.org/index.php/nucc-structure-mainmenu-36/contact-us-mainmenu-34?id=111). See [`NOTICE`](NOTICE).

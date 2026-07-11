@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-07-11 15:54:55
+Generated on: 2026-07-11 17:51:51
 
 ```text
 npi-providers-mcp-server/
@@ -186,6 +186,7 @@ npi-providers-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── NOTICE
 ├── package.json
 ├── README.md
 ├── server.json
