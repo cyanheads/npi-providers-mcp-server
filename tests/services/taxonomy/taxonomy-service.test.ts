@@ -88,6 +88,83 @@ describe('TaxonomyService', () => {
     });
   });
 
+  describe('resolve — lay terms, noise words, and abbreviations (#1)', () => {
+    it('strips generic noise words so "heart doctor" resolves to Cardiovascular Disease', () => {
+      // "doctor" appears in no NUCC entry; stripped, "heart" reaches the general
+      // cardiology entry via its alias rather than a heart-named sub-specialty.
+      expect(svc.resolve('heart doctor', 1)[0]?.code).toBe('207RC0000X');
+    });
+
+    it('resolves lay terms/abbreviations to the right general physician entry', () => {
+      expect(svc.resolve('eye doctor', 1)[0]?.code).toBe('207W00000X'); // Ophthalmology
+      expect(svc.resolve('kidney doctor', 1)[0]?.code).toBe('207RN0300X'); // Nephrology
+      expect(svc.resolve('obgyn', 1)[0]?.code).toBe('207V00000X'); // Obstetrics & Gynecology
+    });
+
+    it('resolves "cancer doctor" to a physician oncology entry (not a nurse/pharmacist)', () => {
+      const top = svc.resolve('cancer doctor', 1)[0];
+      expect(top?.grouping).toMatch(/Allopathic & Osteopathic Physicians/);
+      expect(`${top?.classification} ${top?.specialization ?? ''}`).toMatch(/oncology/i);
+    });
+
+    it('resolves "ent" to Otolaryngology and never Gastroenterology (whole-word gating)', () => {
+      // Bare "ent" used to substring-hit "gastroENTerology"; aliased tokens now match
+      // as whole words, so the abbreviation reaches Otolaryngology and nothing else.
+      const hits = svc.resolve('ent', 20);
+      expect(hits[0]?.code).toBe('207Y00000X'); // Otolaryngology
+      expect(
+        hits.some((h) => /gastroenterology/i.test(`${h.classification} ${h.specialization ?? ''}`)),
+      ).toBe(false);
+    });
+
+    it('does not break a real gastroenterology query (regression guard for the ent fix)', () => {
+      expect(svc.resolve('gastroenterologist', 1)[0]?.code).toBe('207RG0100X');
+    });
+
+    it('a query of only stop-words still resolves rather than becoming empty', () => {
+      expect(svc.resolve('physician', 3).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('pagination via skip (#7)', () => {
+    it('browse: skip returns the next contiguous page with no overlap or gap', () => {
+      const all = svc.browse({ limit: 1000 });
+      const page1 = svc.browse({ limit: 2, skip: 0 });
+      const page2 = svc.browse({ limit: 2, skip: 2 });
+      expect(page1.map((h) => h.code)).toEqual(all.slice(0, 2).map((h) => h.code));
+      expect(page2.map((h) => h.code)).toEqual(all.slice(2, 4).map((h) => h.code));
+      expect(page1.some((h) => page2.some((p) => p.code === h.code))).toBe(false);
+    });
+
+    it('browse: a full skip-walk of a >50-entry grouping reaches every entry exactly once', () => {
+      const grouping = 'Allopathic & Osteopathic Physicians';
+      const full = svc.browse({ grouping, limit: 100000 }).map((h) => h.code);
+      expect(full.length).toBeGreaterThan(50);
+      const walked: string[] = [];
+      for (let skip = 0; ; skip += 50) {
+        const page = svc.browse({ grouping, limit: 50, skip }).map((h) => h.code);
+        if (page.length === 0) break;
+        walked.push(...page);
+      }
+      expect(walked).toEqual(full);
+      expect(new Set(walked).size).toBe(walked.length);
+    });
+
+    it('resolve: skip pages the ranked result set deterministically with no overlap', () => {
+      const all = svc.resolve('physician', 1000);
+      const page1 = svc.resolve('physician', 3, 0);
+      const page2 = svc.resolve('physician', 3, 3);
+      expect(page1.map((h) => h.code)).toEqual(all.slice(0, 3).map((h) => h.code));
+      expect(page2.map((h) => h.code)).toEqual(all.slice(3, 6).map((h) => h.code));
+      expect(page1.some((h) => page2.some((p) => p.code === h.code))).toBe(false);
+    });
+
+    it('resolve/browse: skip past the end returns an empty page (no throw)', () => {
+      expect(svc.resolve('cardiologist', 10, 5000)).toEqual([]);
+      expect(svc.browse({ limit: 10, skip: 5000 })).toEqual([]);
+    });
+  });
+
   describe('get', () => {
     it('returns the entry for an exact code', () => {
       const entry = svc.get('207RC0000X');

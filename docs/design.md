@@ -185,14 +185,14 @@ Operational failures (registry unavailable, timeout) are **not** `none_found`: a
 
 Offline NUCC resolver. Mode-dispatched.
 
-**Input:** `mode` (`resolve`/`get`/`browse`), `query?` (resolve term), `code?` (`get`, regex `^\d{3}[A-Z0-9]{6}X$` style — validate against the loaded set rather than a brittle regex), `grouping?` (browse filter by top-level grouping), `section?` (`Individual`|`Non-Individual` — browse filter by NPI type), `limit?` (1–50, default 20).
+**Input:** `mode` (`resolve`/`get`/`browse`), `query?` (resolve term), `code?` (`get`, regex `^\d{3}[A-Z0-9]{6}X$` style — validate against the loaded set rather than a brittle regex), `grouping?` (browse filter by top-level grouping), `section?` (`Individual`|`Non-Individual` — browse filter by NPI type), `limit?` (1–50, default 20), `skip?` (0–1000, default 0 — page past a truncated `resolve`/`browse` result; keep query/filters and `limit` fixed and raise `skip` by `limit` each call; ignored for `get`).
 
 **Output** (discriminated by mode for `format()`-parity):
 
 - `resolve` / `browse` → `matches: Array<{ code, grouping, classification, specialization?, displayName, definition?, section }>` where `section` is `Individual` | `Non-Individual` (maps to NPI-1 vs NPI-2 provider type), plus `truncated` when capped.
 - `get` → single `entry` (same fields) or `none_found` error.
 
-**Matching (resolve):** strict token match — normalize (lowercase, strip punctuation), require every query token to appear across the `classification`+`specialization`+`displayName` text. Strict-only is the ~90% case for an LLM caller; **no fuzzy fallback** (a model self-corrects better from "no match — browse the hierarchy" than from an approximate guess). Documented in the handler.
+**Matching (resolve):** strict token match — normalize (lowercase, strip punctuation), require every query token to appear across the `classification`+`specialization`+`displayName` text. Two query-side normalization layers run first, both deterministic (the same category as the stemming, not a fuzzy layer): a **stop-word set** (`doctor`, `physician`, `specialist`, `provider`, `md`, `do`) is stripped so a plain-language phrase like "heart doctor" reduces to "heart" instead of carrying a token that appears in no entry; and a **lay-term alias table** maps abbreviations/colloquialisms that share no stem with the formal NUCC name (`heart`→cardiovascular, `eye`→ophthalmology, `ent`→otolaryngology, `kidney`→nephrology/renal, `cancer`→oncology, `obgyn`→obstetrics/gynecology) to the registry's vocabulary. Aliased base tokens match as *whole words*, not substrings, so a short abbreviation like `ent` reaches Otolaryngology rather than substring-hitting `gastroENTerology`. Strict-only is the ~90% case for an LLM caller; **no fuzzy fallback** (a model self-corrects better from "no match — browse the hierarchy" than from an approximate guess). Documented in the handler.
 
 **Errors:**
 

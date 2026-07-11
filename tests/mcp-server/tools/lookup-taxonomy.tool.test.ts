@@ -91,6 +91,64 @@ describe('lookupTaxonomyTool', () => {
     expect(getEnrichment(c).notice).toBeDefined();
   });
 
+  it('resolve: strips noise words so "heart doctor" resolves to Cardiovascular Disease (#1)', async () => {
+    const input = lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'heart doctor' });
+    const result = await lookupTaxonomyTool.handler(input, ctx());
+    expect(result.matches[0]?.code).toBe('207RC0000X');
+  });
+
+  it('resolve: "ent" resolves to Otolaryngology and never Gastroenterology (#1)', async () => {
+    const input = lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'ent', limit: 20 });
+    const result = await lookupTaxonomyTool.handler(input, ctx());
+    expect(result.matches[0]?.code).toBe('207Y00000X');
+    expect(
+      result.matches.some((m) =>
+        /gastroenterology/i.test(`${m.classification} ${m.specialization ?? ''}`),
+      ),
+    ).toBe(false);
+  });
+
+  it('browse: skip returns the next contiguous page with no overlap (#7)', async () => {
+    const page1 = await lookupTaxonomyTool.handler(
+      lookupTaxonomyTool.input.parse({ mode: 'browse', limit: 2, skip: 0 }),
+      ctx(),
+    );
+    const page2 = await lookupTaxonomyTool.handler(
+      lookupTaxonomyTool.input.parse({ mode: 'browse', limit: 2, skip: 2 }),
+      ctx(),
+    );
+    expect(page2.matches).toHaveLength(2);
+    const p1 = page1.matches.map((m) => m.code);
+    const p2 = page2.matches.map((m) => m.code);
+    expect(p1.some((c) => p2.includes(c))).toBe(false);
+  });
+
+  it('resolve: truncation guidance points at skip as the continuation mechanism (#7)', async () => {
+    const c = ctx();
+    await lookupTaxonomyTool.handler(
+      lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'physician', limit: 2 }),
+      c,
+    );
+    expect(getEnrichment(c).notice).toMatch(/skip=2/);
+  });
+
+  it('resolve: skip past the end returns an empty page with a notice, not no_match (#7)', async () => {
+    const c = ctx();
+    const result = await lookupTaxonomyTool.handler(
+      lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'cardiologist', skip: 500 }),
+      c,
+    );
+    expect(result.matches).toEqual([]);
+    expect(getEnrichment(c).notice).toBeDefined();
+  });
+
+  it('get: ignores skip and still returns the exact entry (#7)', async () => {
+    const input = lookupTaxonomyTool.input.parse({ mode: 'get', code: '207RC0000X', skip: 9 });
+    const result = await lookupTaxonomyTool.handler(input, ctx());
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]?.code).toBe('207RC0000X');
+  });
+
   it('format: renders a single entry with code and hierarchy', () => {
     const blocks = lookupTaxonomyTool.format!({
       matches: [

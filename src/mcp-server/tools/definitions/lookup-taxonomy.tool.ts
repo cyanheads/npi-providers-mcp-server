@@ -100,6 +100,15 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
       .max(50)
       .default(20)
       .describe('Maximum entries to return for resolve/browse (1–50). Ignored for get.'),
+    skip: z
+      .number()
+      .int()
+      .min(0)
+      .max(1000)
+      .default(0)
+      .describe(
+        'Entries to skip before the page, for paging past a truncated resolve/browse result (0–1000). Keep the same query/filters and limit, raise skip by limit each call. Ignored for get.',
+      ),
   }),
 
   output: z.object({
@@ -120,7 +129,9 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     notice: z
       .string()
       .optional()
-      .describe('Guidance when nothing matched — suggests broadening or browsing the hierarchy.'),
+      .describe(
+        'Guidance — how to page a truncated result with skip, or how to broaden when nothing matched.',
+      ),
   },
 
   errors: [
@@ -165,15 +176,26 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
         });
       }
       // Fetch one past the cap to detect truncation honestly.
-      const hits = taxonomy.resolve(query, input.limit + 1);
+      const hits = taxonomy.resolve(query, input.limit + 1, input.skip);
       if (hits.length === 0) {
+        // A skip past the end of a real match set is an empty page, not a no-match.
+        if (input.skip > 0) {
+          ctx.enrich.notice(
+            `No more matches beyond skip=${input.skip}. Lower skip, or omit it to page from the start.`,
+          );
+          return { matches: [] };
+        }
         throw ctx.fail('no_match', `No taxonomy matched "${query}".`, {
           ...ctx.recoveryFor('no_match'),
         });
       }
       const matches = hits.slice(0, input.limit);
       if (hits.length > input.limit) {
-        ctx.enrich.truncated({ shown: matches.length, cap: input.limit });
+        ctx.enrich.truncated({
+          shown: matches.length,
+          cap: input.limit,
+          guidance: `More matches beyond this page. Page forward with skip=${input.skip + input.limit} at the same limit, or refine the query.`,
+        });
       }
       return { matches: matches.map(toEntry) };
     }
@@ -183,14 +205,21 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
       ...(input.grouping ? { grouping: input.grouping } : {}),
       ...(input.section ? { section: input.section } : {}),
       limit: input.limit + 1,
+      skip: input.skip,
     });
     const matches = hits.slice(0, input.limit);
     if (matches.length === 0) {
       ctx.enrich.notice(
-        'No taxonomy entries matched the browse filters. Drop the grouping/section filter, or call mode browse with no filters to see all groupings.',
+        input.skip > 0
+          ? `No more entries beyond skip=${input.skip}. Lower skip, or omit it to page from the start.`
+          : 'No taxonomy entries matched the browse filters. Drop the grouping/section filter, or call mode browse with no filters to see all groupings.',
       );
     } else if (hits.length > input.limit) {
-      ctx.enrich.truncated({ shown: matches.length, cap: input.limit });
+      ctx.enrich.truncated({
+        shown: matches.length,
+        cap: input.limit,
+        guidance: `More entries beyond this page. Page forward with skip=${input.skip + input.limit} at the same limit, or filter by grouping/section.`,
+      });
     }
     return { matches: matches.map(toEntry) };
   },

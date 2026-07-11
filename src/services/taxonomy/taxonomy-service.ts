@@ -52,6 +52,36 @@ function tokenize(s: string): string[] {
 }
 
 /**
+ * Generic role nouns that appear in no NUCC classification/specialization/display-name
+ * (the vocabulary says "Physician"/"Surgery", never "doctor"), so a plain-language phrase
+ * routinely carries one — "heart doctor", "eye doctor" — that can never match any entry
+ * and zeroes the whole strict-AND query. Stripped from the *query* only; the index keeps
+ * every word. Same category as `TOKEN_ALIASES` — deterministic, query-side.
+ */
+const STOP_WORDS: ReadonlySet<string> = new Set([
+  'doctor',
+  'physician',
+  'specialist',
+  'provider',
+  'md',
+  'do',
+]);
+
+/**
+ * Tokenize a *query*: normalize → drop stop-words → stem. Distinct from the index-side
+ * `tokenize` (which keeps every word) so noise words don't zero a match. When the query is
+ * *only* stop-words (e.g. "physician"), the strip is skipped so a degenerate query still
+ * resolves as it did before rather than silently becoming empty.
+ */
+function tokenizeQuery(s: string): string[] {
+  const n = normalize(s);
+  if (n.length === 0) return [];
+  const raw = n.split(' ').filter(Boolean);
+  const kept = raw.filter((t) => !STOP_WORDS.has(t));
+  return (kept.length > 0 ? kept : raw).map(stemToken).filter(Boolean);
+}
+
+/**
  * Lay-term → NUCC-formal token aliases, applied to the *query* only (the index keeps
  * the registry's own vocabulary). A handful of common specialist words share no stem
  * with the taxonomy's formal specialty name, so strict-token resolve would miss the
@@ -64,12 +94,24 @@ function tokenize(s: string): string[] {
  * their physician entry. A query token matches an entry if the token *or any of its
  * aliases* is present, so the base token still matches its own sub-specialties (e.g.
  * "cardiolog" → "Interventional Cardiology") while the alias reaches the general one.
+ *
+ * The second block is lay terms and abbreviations that share no stem with the formal
+ * NUCC name at all ("eye" for Ophthalmology, "ent" for Otolaryngology). For these the
+ * base token is matched as a *whole word* (see `hasWord` in `resolve`), not a substring,
+ * so a 3-letter abbreviation can't coincidentally land inside an unrelated specialty —
+ * bare "ent" must reach Otolaryngology, never substring-hit "gastroENTerology".
  * Deterministic lexical normalization — the same category as the stemming above.
  */
 const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   cardiolog: ['cardiovascular'],
   pulmonolog: ['pulmonary'],
   surgeon: ['surgery', 'surgical'],
+  heart: ['cardiovascular'],
+  eye: ['ophthalmolog'],
+  ent: ['otolaryngolog'],
+  kidney: ['nephrolog', 'renal'],
+  cancer: ['oncolog'],
+  obgyn: ['obstetric', 'gynecolog'],
 };
 
 /**
@@ -80,6 +122,15 @@ const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
 function matchVariants(token: string): { token: string; aliases: string[] } {
   const aliases = TOKEN_ALIASES[token];
   return { token, aliases: aliases ? [...aliases] : [] };
+}
+
+/**
+ * Whole-token membership: true when `token` is one of the space-separated tokens in the
+ * (already normalized/stemmed) `hay`, not merely a substring. Gates aliased lay tokens so
+ * a short abbreviation like "ent" doesn't substring-hit "gastroenterolog".
+ */
+function hasWord(hay: string, token: string): boolean {
+  return ` ${hay} `.includes(` ${token} `);
 }
 
 /**
@@ -170,18 +221,25 @@ export class TaxonomyService {
   /**
    * Resolve a plain-language specialty term to matching taxonomy entries via
    * strict token match: every query token (or one of its formal-vocabulary aliases)
-   * must appear as a substring in the entry's classification + specialization +
-   * display-name text. No fuzzy fallback — a weak query is better served by an honest
-   * "no match, browse the hierarchy" than an approximate guess the caller can't audit.
+   * must appear in the entry's classification + specialization + display-name text.
+   * The query is first stripped of generic noise words ("doctor", "specialist", …) and
+   * mapped through `TOKEN_ALIASES`, so "heart doctor" reduces to "heart" and "ent" reaches
+   * Otolaryngology. Aliased base tokens match as whole words, not substrings, so a short
+   * abbreviation can't coincidentally hit an unrelated specialty. No fuzzy fallback — a
+   * weak query is better served by an honest "no match, browse the hierarchy" than an
+   * approximate guess the caller can't audit.
    *
    * Ranking is a chain of transparent, rule-based signals (each lowest-first; see
    * `ResolveHit`): physician grouping → query names the entry's own specialty → alias
    * match (canonical general specialty) → non-pediatric → shorter haystack → code. The
    * net effect: a bare "cardiologist" resolves to "Cardiovascular Disease Physician", not
    * a cardiology pharmacist, technician, hospital, or a narrow cardiology sub-specialty.
+   *
+   * `skip` pages the fully-ranked, deterministic result set (`slice(skip, skip + limit)`);
+   * ties break down to `code`, so paging never skips or duplicates an entry across calls.
    */
-  resolve(query: string, limit: number): TaxonomyEntry[] {
-    const tokens = tokenize(query);
+  resolve(query: string, limit: number, skip = 0): TaxonomyEntry[] {
+    const tokens = tokenizeQuery(query);
     if (tokens.length === 0) return [];
     const variants = tokens.map(matchVariants);
     const hasAliases = variants.some((v) => v.aliases.length > 0);
@@ -191,19 +249,24 @@ export class TaxonomyService {
       if (!hay) continue;
       const selfHay = this.selfNameText.get(code) ?? '';
 
-      // Every query token must match via the token itself or one of its aliases.
+      // Every query token must match via the token itself or one of its aliases. Aliased
+      // lay tokens (eye, ent, obgyn, …) match by whole word so a short abbreviation can't
+      // substring-hit an unrelated specialty; plain tokens keep substring matching, which
+      // the shared stemming already aligns between query and index.
       let allMatch = true;
       let allMatchSelfName = true;
       let matchedAnAlias = false;
       for (const { token, aliases } of variants) {
-        const inHay = hay.includes(token);
+        const aliased = aliases.length > 0;
+        const inHay = aliased ? hasWord(hay, token) : hay.includes(token);
         const aliasInHay = aliases.some((a) => hay.includes(a));
         if (!inHay && !aliasInHay) {
           allMatch = false;
           break;
         }
         if (aliasInHay && !inHay) matchedAnAlias = true;
-        if (!selfHay.includes(token) && !aliases.some((a) => selfHay.includes(a))) {
+        const inSelf = aliased ? hasWord(selfHay, token) : selfHay.includes(token);
+        if (!inSelf && !aliases.some((a) => selfHay.includes(a))) {
           allMatchSelfName = false;
         }
       }
@@ -227,7 +290,7 @@ export class TaxonomyService {
         a.haystackLength - b.haystackLength ||
         a.entry.code.localeCompare(b.entry.code),
     );
-    return hits.slice(0, limit).map((h) => h.entry);
+    return hits.slice(skip, skip + limit).map((h) => h.entry);
   }
 
   /** Exact lookup by taxonomy code. Returns undefined when absent. */
@@ -237,9 +300,16 @@ export class TaxonomyService {
 
   /**
    * Browse the hierarchy, optionally filtered by grouping (case-insensitive
-   * substring) and/or NPI section. Entries are returned sorted by code.
+   * substring) and/or NPI section. Entries are returned sorted by code. `skip` pages the
+   * sorted set (`slice(skip, skip + limit)`); the code sort is total, so paging a grouping
+   * larger than a single page never skips or duplicates an entry across calls.
    */
-  browse(opts: { grouping?: string; section?: TaxonomySection; limit: number }): TaxonomyEntry[] {
+  browse(opts: {
+    grouping?: string;
+    section?: TaxonomySection;
+    limit: number;
+    skip?: number;
+  }): TaxonomyEntry[] {
     const groupingNeedle = opts.grouping ? normalize(opts.grouping) : undefined;
     const out: TaxonomyEntry[] = [];
     for (const entry of this.byCode.values()) {
@@ -248,7 +318,8 @@ export class TaxonomyService {
       out.push(entry);
     }
     out.sort((a, b) => a.code.localeCompare(b.code));
-    return out.slice(0, opts.limit);
+    const skip = opts.skip ?? 0;
+    return out.slice(skip, skip + opts.limit);
   }
 }
 
