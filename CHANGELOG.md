@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.7](changelog/0.1.x/0.1.7.md) — 2026-07-11
+
+Ship the NOTICE file in the npm tarball so the AMA/NUCC taxonomy attribution reaches npm consumers (#2)
+
 ## [0.1.6](changelog/0.1.x/0.1.6.md) — 2026-07-11
 
 npi_lookup_taxonomy: resolve lay-term/abbreviation specialties, page truncated results via skip, and attribute the bundled NUCC taxonomy to AMA/NUCC (#1, #7, #2)
