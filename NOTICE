@@ -1,0 +1,35 @@
+npi-providers-mcp-server
+Copyright 2025 Casey Hand @cyanheads
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file for the
+full terms.
+
+==============================================================================
+Third-party data
+==============================================================================
+
+NUCC Health Care Provider Taxonomy code set
+-------------------------------------------
+
+© American Medical Association on behalf of the National Uniform Claim
+Committee (NUCC).
+
+This product bundles the NUCC Health Care Provider Taxonomy code set (under
+src/services/taxonomy/data/) for offline specialty resolution. The code set is
+developed and maintained by the National Uniform Claim Committee (NUCC) and is
+used and redistributed here under the NUCC permission, which grants a
+royalty-free, non-exclusive right to incorporate and redistribute the code set
+on the condition that this AMA copyright notice accompanies any copy and the
+code set is not modified beyond formatting.
+
+The bundled code set is redistributed unmodified beyond formatting: the build
+script (scripts/generate-taxonomy-data.ts) drops the upstream Notes column,
+trims field whitespace, sorts rows by code, and re-encodes the data as a typed
+TypeScript module. No code, description, classification, or other data value is
+altered.
+
+NUCC permission:
+https://www.nucc.org/index.php/nucc-structure-mainmenu-36/contact-us-mainmenu-34?id=111
+
+NUCC Health Care Provider Taxonomy:
+https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40

@@ -8,6 +8,11 @@
  * Source: https://www.nucc.org/images/stories/CSV/nucc_taxonomy_250.csv
  * Columns kept: Code, Grouping, Classification, Specialization, Display Name, Definition, Section.
  * The upstream Notes column (citations/revision history) is intentionally dropped.
+ *
+ * © American Medical Association on behalf of the National Uniform Claim
+ * Committee (NUCC). Used under the NUCC permission (royalty-free, non-exclusive)
+ * on the condition that this notice accompanies any copy; redistributed
+ * unmodified beyond formatting. See the repository NOTICE file.
  */
 
 import type { TaxonomyEntry } from './types.js';
