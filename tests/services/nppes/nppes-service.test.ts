@@ -203,6 +203,145 @@ describe('NppesService.getByNumber', () => {
       title: 'CEO',
     });
   });
+
+  it('drops the "--" placeholder on individual name prefix/suffix but keeps real values (#6)', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1720034424,
+          enumeration_type: 'NPI-1',
+          basic: {
+            first_name: 'JOSEPH',
+            last_name: 'ABATE',
+            name_prefix: 'Dr.',
+            name_suffix: '--',
+            status: 'A',
+          },
+          taxonomies: [],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec?.namePrefix).toBe('Dr.'); // real value preserved
+    expect(rec?.nameSuffix).toBeUndefined(); // "--" sentinel treated as absence
+  });
+
+  it('preserves a real name suffix like "Jr." (#6 — exact-match guard, not a heuristic)', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1111111111,
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'JOHN', last_name: 'SMITH', name_suffix: 'Jr.', status: 'A' },
+          taxonomies: [],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1111111111', ctx);
+    expect(rec?.nameSuffix).toBe('Jr.');
+  });
+
+  it('decodes top-level epochs, other-name parts, and full endpoint fields (#9)', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1972944437,
+          enumeration_type: 'NPI-1',
+          created_epoch: '1373654494000',
+          last_updated_epoch: '1767735851000',
+          basic: { first_name: 'KATHERINE', last_name: 'SMITH', status: 'A' },
+          taxonomies: [],
+          other_names: [
+            {
+              code: '1',
+              first_name: 'KATHERINE',
+              middle_name: 'ANN',
+              last_name: 'SMITH',
+              prefix: '--',
+              suffix: '--',
+              type: 'Former Name',
+            },
+          ],
+          endpoints: [
+            {
+              endpoint: 'KatherineAbelPA@fpc.medentdirect.com',
+              endpointType: 'DIRECT',
+              endpointTypeDescription: 'Direct Messaging Address',
+              use: 'HIE',
+              useDescription: 'Health Information Exchange (HIE)',
+              contentTypeDescription: '',
+              affiliation: 'Y',
+              affiliationName: 'FAMILY PRACTICE CENTER, PC',
+              address_1: '225 N Front St',
+              address_type: 'DOM',
+              city: 'Steelton',
+              state: 'PA',
+              postal_code: '171132240',
+              country_code: 'US',
+              country_name: 'United States',
+            },
+          ],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1972944437', ctx);
+    expect(rec?.createdEpoch).toBe(1373654494000);
+    expect(rec?.lastUpdatedEpoch).toBe(1767735851000);
+    expect(rec?.otherNames[0]).toMatchObject({
+      firstName: 'KATHERINE',
+      middleName: 'ANN',
+      lastName: 'SMITH',
+      type: 'Former Name',
+    });
+    // other_names prefix/suffix "--" placeholders dropped via the shared guard.
+    expect(rec?.otherNames[0]?.prefix).toBeUndefined();
+    expect(rec?.otherNames[0]?.suffix).toBeUndefined();
+    expect(rec?.endpoints[0]).toMatchObject({
+      endpoint: 'KatherineAbelPA@fpc.medentdirect.com',
+      endpointType: 'DIRECT',
+      use: 'HIE',
+      useDescription: 'Health Information Exchange (HIE)',
+      affiliation: 'Y',
+      affiliationName: 'FAMILY PRACTICE CENTER, PC',
+      addressType: 'DOM',
+      line1: '225 N Front St',
+      city: 'Steelton',
+      state: 'PA',
+      postalCode: '171132240',
+      countryCode: 'US',
+      countryName: 'United States',
+    });
+    // Empty contentTypeDescription is preserved as absence, never an empty string.
+    expect(rec?.endpoints[0]?.contentTypeDescription).toBeUndefined();
+  });
+
+  it('decodes authorized-official name prefix/suffix and reuses the "--" guard (#6/#9)', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1234567890,
+          enumeration_type: 'NPI-2',
+          basic: {
+            organization_name: 'SEATTLE CLINIC LLC',
+            authorized_official_first_name: 'PAT',
+            authorized_official_last_name: 'SMITH',
+            authorized_official_name_prefix: '--',
+            authorized_official_name_suffix: 'Jr.',
+            authorized_official_title_or_position: 'CEO',
+            status: 'A',
+          },
+          taxonomies: [],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1234567890', ctx);
+    expect(rec?.authorizedOfficial?.namePrefix).toBeUndefined(); // "--" dropped
+    expect(rec?.authorizedOfficial?.nameSuffix).toBe('Jr.'); // real value kept
+  });
 });
 
 describe('NppesService Errors[]-on-200 detection', () => {

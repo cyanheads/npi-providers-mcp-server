@@ -6,10 +6,12 @@
  * @module tests/mcp-server/tools/get-provider.tool.test
  */
 
+import { JsonRpcErrorCode, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getProviderTool } from '@/mcp-server/tools/definitions/get-provider.tool.js';
-import { initNppesService } from '@/services/nppes/nppes-service.js';
+import { initNppesService, NppesService } from '@/services/nppes/nppes-service.js';
+import type { ProviderRecord } from '@/services/nppes/types.js';
 
 beforeAll(() => {
   initNppesService();
@@ -43,6 +45,7 @@ function stubByNpi(knownNpis: Set<string>): void {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('getProviderTool', () => {
@@ -68,12 +71,55 @@ describe('getProviderTool', () => {
     expect(getEnrichment(c).notice).toBeDefined();
   });
 
-  it('throws none_found when every NPI misses', async () => {
+  it('throws none_found only when every NPI is a confirmed miss (result_count 0)', async () => {
     stubByNpi(new Set());
     const input = getProviderTool.input.parse({ npis: ['1234567893', '1111111112'] });
     await expect(getProviderTool.handler(input, ctx())).rejects.toMatchObject({
       data: { reason: 'none_found' },
     });
+  });
+
+  it('surfaces the real upstream error, not none_found, when every lookup fails (#8)', async () => {
+    vi.spyOn(NppesService.prototype, 'getByNumber').mockRejectedValue(
+      serviceUnavailable('NPPES registry unavailable — connection refused.'),
+    );
+    const input = getProviderTool.input.parse({ npis: ['1720034424', '1999999984'] });
+    const err = await getProviderTool.handler(input, ctx()).catch((e) => e);
+    // An operational failure must never masquerade as a confirmed miss.
+    expect(err?.data?.reason).not.toBe('none_found');
+    expect(err?.code).toBe(JsonRpcErrorCode.ServiceUnavailable);
+    expect(String(err?.message)).toContain('unavailable');
+  });
+
+  it('returns found records and surfaces failed NPIs in errored on a mixed batch (#8)', async () => {
+    vi.spyOn(NppesService.prototype, 'getByNumber').mockImplementation(async (npi: string) => {
+      if (npi === '1720034424') {
+        return {
+          npi,
+          type: 'individual',
+          status: 'active',
+          name: 'TEST PROVIDER',
+          taxonomies: [],
+          addresses: [],
+          practiceLocations: [],
+          identifiers: [],
+          otherNames: [],
+          endpoints: [],
+        } satisfies ProviderRecord;
+      }
+      throw serviceUnavailable('NPPES registry timed out.');
+    });
+    const input = getProviderTool.input.parse({ npis: ['1720034424', '1999999984'] });
+    const c = ctx();
+    const result = await getProviderTool.handler(input, c);
+    expect(result.found).toHaveLength(1);
+    expect(result.found[0]?.npi).toBe('1720034424');
+    // The failed NPI is surfaced honestly — not silently dropped, not a confirmed miss.
+    expect(result.notFound).toEqual([]);
+    expect(result.errored).toHaveLength(1);
+    expect(result.errored[0]?.npi).toBe('1999999984');
+    expect(result.errored[0]?.reason).toContain('timed out');
+    expect(getEnrichment(c).notice).toBeDefined();
   });
 
   it('de-duplicates repeated NPIs', async () => {
@@ -100,28 +146,58 @@ describe('getProviderTool', () => {
     expect(() => getProviderTool.input.parse({ npis: eleven })).toThrow();
   });
 
-  it('format: renders the full record and a not-found section', () => {
+  it('format: renders the full record, new fields, and not-found/errored sections', () => {
     const blocks = getProviderTool.format!({
       found: [
         {
-          npi: '1720034424',
+          npi: '1972944437',
           type: 'individual',
           status: 'active',
-          name: 'TEST PROVIDER',
+          name: 'KATHERINE SMITH',
+          createdEpoch: 1373654494000,
+          lastUpdatedEpoch: 1767735851000,
           taxonomies: [{ code: '207R00000X', description: 'Internal Medicine', primary: true }],
           addresses: [{ purpose: 'LOCATION', city: 'Seattle', state: 'WA' }],
           practiceLocations: [],
           identifiers: [],
-          otherNames: [],
-          endpoints: [],
+          otherNames: [
+            { type: 'Former Name', firstName: 'KATHERINE', middleName: 'ANN', lastName: 'SMITH' },
+          ],
+          endpoints: [
+            {
+              endpoint: 'katherine@example.com',
+              endpointType: 'DIRECT',
+              useDescription: 'Health Information Exchange (HIE)',
+              affiliationName: 'FAMILY PRACTICE CENTER, PC',
+              addressType: 'DOM',
+              line1: '225 N Front St',
+              city: 'Steelton',
+              state: 'PA',
+              postalCode: '171132240',
+              countryName: 'United States',
+            },
+          ],
         },
       ],
       notFound: [{ npi: '1234567893', reason: 'No record in the NPPES registry for this NPI.' }],
+      errored: [
+        { npi: '1999999984', reason: 'NPPES registry unavailable (failed after 4 attempts)' },
+      ],
     });
     const text = blocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
-    expect(text).toContain('1720034424');
+    expect(text).toContain('1972944437');
     expect(text).toContain('Internal Medicine');
+    // #9 new fields render (format-parity)
+    expect(text).toContain('1373654494000'); // createdEpoch
+    expect(text).toContain('ANN'); // other-name middle name
+    expect(text).toContain('Health Information Exchange (HIE)'); // endpoint useDescription
+    expect(text).toContain('225 N Front St'); // endpoint address line1
+    expect(text).toContain('FAMILY PRACTICE CENTER, PC'); // endpoint affiliationName
+    // Confirmed-miss partition
     expect(text).toContain('Not found');
     expect(text).toContain('1234567893');
+    // #8 errored partition renders, distinct from not-found
+    expect(text).toContain('Errored');
+    expect(text).toContain('1999999984');
   });
 });

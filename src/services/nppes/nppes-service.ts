@@ -58,6 +58,28 @@ function trimmed(v: string | null | undefined): string | undefined {
 }
 
 /**
+ * Trim like {@link trimmed}, then treat NPPES's `"--"` placeholder as absence.
+ *
+ * The registry uses the literal string `"--"` as a sentinel for an unset name
+ * prefix/suffix. It is pervasive on individual `name_prefix`/`name_suffix`,
+ * organization `authorized_official_name_prefix`/`_suffix`, and `other_names[]`
+ * `prefix`/`suffix`. The match is exact — real values (`"Jr."`, `"Dr."`, `"Mr."`)
+ * coexist in the same fields, so a broader heuristic would eat legitimate data.
+ * Apply only to prefix/suffix-shaped fields; free-text fields (`credential`) never
+ * carry the sentinel.
+ */
+function trimmedNonPlaceholder(v: string | null | undefined): string | undefined {
+  const t = trimmed(v);
+  return t === '--' ? undefined : t;
+}
+
+/** Coerce a raw epoch (`number | string`, milliseconds) to a finite number, or `undefined`. */
+function epochNumber(v: number | string | undefined): number | undefined {
+  const n = typeof v === 'number' ? v : Number(trimmed(v));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
  * Build a single-key partial that's present only when `value` is defined — the
  * `exactOptionalPropertyTypes`-honest way to assemble normalized records from
  * sparse upstream fields (omit absent keys, never set them to `undefined`).
@@ -267,7 +289,10 @@ export class NppesService {
       otherNames: (raw.other_names ?? []).map((n) => ({
         ...field('type', trimmed(n.type)),
         ...field('firstName', trimmed(n.first_name)),
+        ...field('middleName', trimmed(n.middle_name)),
         ...field('lastName', trimmed(n.last_name)),
+        ...field('prefix', trimmedNonPlaceholder(n.prefix)),
+        ...field('suffix', trimmedNonPlaceholder(n.suffix)),
         ...field('organizationName', trimmed(n.organization_name)),
         ...field('credential', trimmed(n.credential)),
       })),
@@ -279,16 +304,27 @@ export class NppesService {
           ...field('endpointType', trimmed(e.endpointType)),
           ...field('endpointTypeDescription', trimmed(e.endpointTypeDescription)),
           ...field('use', trimmed(e.use)),
+          ...field('useDescription', trimmed(e.useDescription)),
           ...field('contentType', trimmed(e.contentType)),
+          ...field('contentTypeDescription', trimmed(e.contentTypeDescription)),
+          ...field('affiliation', trimmed(e.affiliation)),
+          ...field('affiliationName', trimmed(e.affiliationName)),
+          ...field('addressType', trimmed(e.address_type)),
+          ...field('line1', trimmed(e.address_1)),
+          ...field('city', trimmed(e.city)),
+          ...field('state', trimmed(e.state)),
+          ...field('postalCode', trimmed(e.postal_code)),
+          ...field('countryCode', trimmed(e.country_code)),
+          ...field('countryName', trimmed(e.country_name)),
         })),
     };
 
-    // Individual name parts
+    // Individual name parts. Prefix/suffix carry the `"--"` placeholder sentinel.
     const firstName = trimmed(basic.first_name);
     const lastName = trimmed(basic.last_name);
     const middleName = trimmed(basic.middle_name);
-    const namePrefix = trimmed(basic.name_prefix);
-    const nameSuffix = trimmed(basic.name_suffix);
+    const namePrefix = trimmedNonPlaceholder(basic.name_prefix);
+    const nameSuffix = trimmedNonPlaceholder(basic.name_suffix);
     const organizationName = trimmed(basic.organization_name);
     const credential = trimmed(basic.credential);
     const sex = trimmed(basic.sex);
@@ -297,6 +333,8 @@ export class NppesService {
     const enumerationDate = trimmed(basic.enumeration_date);
     const lastUpdated = trimmed(basic.last_updated);
     const certificationDate = trimmed(basic.certification_date);
+    const createdEpoch = epochNumber(raw.created_epoch);
+    const lastUpdatedEpoch = epochNumber(raw.last_updated_epoch);
 
     if (firstName) record.firstName = firstName;
     if (lastName) record.lastName = lastName;
@@ -312,6 +350,8 @@ export class NppesService {
     if (enumerationDate) record.enumerationDate = enumerationDate;
     if (lastUpdated) record.lastUpdated = lastUpdated;
     if (certificationDate) record.certificationDate = certificationDate;
+    if (createdEpoch !== undefined) record.createdEpoch = createdEpoch;
+    if (lastUpdatedEpoch !== undefined) record.lastUpdatedEpoch = lastUpdatedEpoch;
 
     return record;
   }
@@ -320,6 +360,9 @@ export class NppesService {
     const firstName = trimmed(basic.authorized_official_first_name);
     const lastName = trimmed(basic.authorized_official_last_name);
     const middleName = trimmed(basic.authorized_official_middle_name);
+    // Prefix/suffix carry the same `"--"` placeholder sentinel as individual name parts.
+    const namePrefix = trimmedNonPlaceholder(basic.authorized_official_name_prefix);
+    const nameSuffix = trimmedNonPlaceholder(basic.authorized_official_name_suffix);
     const credential = trimmed(basic.authorized_official_credential);
     const title = trimmed(basic.authorized_official_title_or_position);
     const telephoneNumber = trimmed(basic.authorized_official_telephone_number);
@@ -328,6 +371,8 @@ export class NppesService {
       ...field('firstName', firstName),
       ...field('lastName', lastName),
       ...field('middleName', middleName),
+      ...field('namePrefix', namePrefix),
+      ...field('nameSuffix', nameSuffix),
       ...field('credential', credential),
       ...field('title', title),
       ...field('telephoneNumber', telephoneNumber),

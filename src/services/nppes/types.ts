@@ -97,19 +97,29 @@ export interface RawNppesOtherName {
   type?: string;
 }
 
-/** Raw `endpoints[]` element (FHIR / Direct messaging endpoints). */
+/**
+ * Raw `endpoints[]` element (FHIR / Direct messaging endpoints). Live responses
+ * carry an endpoint-specific address block plus routing/context fields
+ * (`address_type`, `affiliationName`, `contentTypeDescription`, `country_name`,
+ * `useDescription`) not present on the older probed shape.
+ */
 export interface RawNppesEndpoint {
   address_1?: string;
+  address_type?: string;
   affiliation?: string;
+  affiliationName?: string;
   city?: string;
   contentType?: string;
+  contentTypeDescription?: string;
   country_code?: string;
+  country_name?: string;
   endpoint?: string;
   endpointType?: string;
   endpointTypeDescription?: string;
   postal_code?: string;
   state?: string;
   use?: string;
+  useDescription?: string;
 }
 
 /** Raw `results[]` element. */
@@ -183,17 +193,31 @@ export interface ProviderOtherName {
   credential?: string;
   firstName?: string;
   lastName?: string;
+  middleName?: string;
   organizationName?: string;
+  prefix?: string;
+  suffix?: string;
   type?: string;
 }
 
-/** A normalized FHIR / Direct endpoint. */
+/** A normalized FHIR / Direct endpoint, including its routing address and context. */
 export interface ProviderEndpoint {
+  addressType?: string;
+  affiliation?: string;
+  affiliationName?: string;
+  city?: string;
   contentType?: string;
+  contentTypeDescription?: string;
+  countryCode?: string;
+  countryName?: string;
   endpoint: string;
   endpointType?: string;
   endpointTypeDescription?: string;
+  line1?: string;
+  postalCode?: string;
+  state?: string;
   use?: string;
+  useDescription?: string;
 }
 
 /** The authorized-official block for organization (NPI-2) records. */
@@ -202,6 +226,8 @@ export interface AuthorizedOfficial {
   firstName?: string;
   lastName?: string;
   middleName?: string;
+  namePrefix?: string;
+  nameSuffix?: string;
   telephoneNumber?: string;
   title?: string;
 }
@@ -211,6 +237,8 @@ export interface ProviderRecord {
   addresses: ProviderAddress[];
   authorizedOfficial?: AuthorizedOfficial;
   certificationDate?: string;
+  /** Record creation timestamp, epoch milliseconds (from raw `created_epoch`). */
+  createdEpoch?: number;
   credential?: string;
   endpoints: ProviderEndpoint[];
   enumerationDate?: string;
@@ -218,6 +246,8 @@ export interface ProviderRecord {
   identifiers: ProviderIdentifier[];
   lastName?: string;
   lastUpdated?: string;
+  /** Record last-update timestamp, epoch milliseconds (from raw `last_updated_epoch`). */
+  lastUpdatedEpoch?: number;
   middleName?: string;
   /** Assembled "First Last" (individual) or organization name. */
   name: string;
