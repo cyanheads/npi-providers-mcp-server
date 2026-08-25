@@ -16,6 +16,11 @@ import { initTaxonomyService } from './services/taxonomy/taxonomy-service.js';
 await createApp({
   name: 'npi-providers-mcp-server',
   title: 'npi-providers-mcp-server',
+  cacheHints: {
+    'tools/list': { ttlMs: 3_600_000, cacheScope: 'public' },
+    'resources/list': { ttlMs: 3_600_000, cacheScope: 'public' },
+    'resources/templates/list': { ttlMs: 3_600_000, cacheScope: 'public' },
+  },
   tools: [searchProvidersTool, getProviderTool, lookupTaxonomyTool],
   resources: [providerResource, taxonomyResource],
   instructions:

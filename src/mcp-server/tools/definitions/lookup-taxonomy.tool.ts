@@ -62,54 +62,67 @@ function renderEntry(e: z.infer<typeof EntrySchema>): string {
 
 export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
   description:
-    'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching taxonomy codes and their canonical descriptions; mode `get` returns the full entry for an exact code; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2). Grounding a plain-language specialty here before calling npi_search_providers ensures the correct taxonomy code is sent rather than returning nothing.',
+    'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching taxonomy entries; mode `get` returns the full entry for an exact code; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2). A resolved entry\'s specialization, or its classification when specialization is absent, maps directly to npi_search_providers.taxonomy_description.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
-  input: z.object({
-    mode: z
-      .enum(['resolve', 'get', 'browse'])
-      .describe(
-        'resolve: plain term → codes. get: exact code → entry. browse: walk the hierarchy.',
-      ),
-    query: z
-      .string()
-      .optional()
-      .describe(
-        'For mode "resolve": the plain-language specialty term to resolve (e.g. "pediatric cardiologist").',
-      ),
-    code: z
-      .string()
-      .optional()
-      .describe('For mode "get": the exact NUCC taxonomy code (e.g. "207RC0000X").'),
-    grouping: z
-      .string()
-      .optional()
-      .describe(
-        'For mode "browse": filter to a top-level grouping by case-insensitive substring (e.g. "physicians").',
-      ),
-    section: z
-      .enum(['Individual', 'Non-Individual'])
-      .optional()
-      .describe(
-        'For mode "browse": filter by NPI section — Individual (NPI-1) or Non-Individual (NPI-2).',
-      ),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(50)
-      .default(20)
-      .describe('Maximum entries to return for resolve/browse (1–50). Ignored for get.'),
-    skip: z
-      .number()
-      .int()
-      .min(0)
-      .max(1000)
-      .default(0)
-      .describe(
-        'Entries to skip before the page, for paging past a truncated resolve/browse result (0–1000). Keep the same query/filters and limit, raise skip by limit each call. Ignored for get.',
-      ),
-  }),
+  input: z.discriminatedUnion('mode', [
+    z.object({
+      mode: z.literal('resolve').describe('Resolve a plain-language specialty to taxonomy codes.'),
+      query: z
+        .string()
+        .min(1)
+        .describe('The plain-language specialty term to resolve, e.g. "pediatric cardiologist".'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .default(20)
+        .describe('Maximum matching entries to return (1–50).'),
+      skip: z
+        .number()
+        .int()
+        .min(0)
+        .max(1000)
+        .default(0)
+        .describe(
+          'Entries to skip before the page (0–1000). Keep the same query and limit, then raise skip by limit each call.',
+        ),
+    }),
+    z.object({
+      mode: z.literal('get').describe('Fetch one exact taxonomy entry by code.'),
+      code: z.string().min(1).describe('The exact NUCC taxonomy code, e.g. "207RC0000X".'),
+    }),
+    z.object({
+      mode: z.literal('browse').describe('Browse the taxonomy hierarchy.'),
+      grouping: z
+        .string()
+        .optional()
+        .describe(
+          'Filter to a top-level grouping by case-insensitive substring, e.g. "physicians".',
+        ),
+      section: z
+        .enum(['Individual', 'Non-Individual'])
+        .optional()
+        .describe('Filter by NPI section: Individual (NPI-1) or Non-Individual (NPI-2).'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .default(20)
+        .describe('Maximum entries to return (1–50).'),
+      skip: z
+        .number()
+        .int()
+        .min(0)
+        .max(1000)
+        .default(0)
+        .describe(
+          'Entries to skip before the page (0–1000). Keep the same filters and limit, then raise skip by limit each call.',
+        ),
+    }),
+  ]),
 
   output: z.object({
     matches: z
@@ -143,9 +156,9 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     },
     {
       reason: 'missing_argument',
-      code: JsonRpcErrorCode.InvalidParams,
-      when: 'The required argument for the chosen mode was not provided (query for resolve, code for get).',
-      recovery: 'Provide query for mode resolve, or code for mode get; browse needs neither.',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'The required query or code was present but blank after trimming.',
+      recovery: 'Provide a non-blank query for resolve or taxonomy code for get.',
     },
   ],
 
@@ -153,7 +166,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     const taxonomy = getTaxonomyService();
 
     if (input.mode === 'get') {
-      const code = input.code?.trim();
+      const code = input.code.trim();
       if (!code) {
         throw ctx.fail('missing_argument', 'Mode "get" requires a `code`.', {
           ...ctx.recoveryFor('missing_argument'),
@@ -169,7 +182,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     }
 
     if (input.mode === 'resolve') {
-      const query = input.query?.trim();
+      const query = input.query.trim();
       if (!query) {
         throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.', {
           ...ctx.recoveryFor('missing_argument'),

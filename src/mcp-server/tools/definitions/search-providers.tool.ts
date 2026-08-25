@@ -60,20 +60,20 @@ const ProviderRowSchema = z
 
 export const searchProvidersTool = tool('npi_search_providers', {
   description:
-    'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. The specialty filter accepts plain-language terms (e.g. "cardiologist", "pediatric cardiologist") and resolves them through the bundled NUCC taxonomy to the registry\'s exact taxonomy descriptions before searching; the resolved taxonomy is echoed back so you can see what was actually searched. Pass location as the dedicated city/state/postal_code inputs, not inside specialty. Returns a compact row per provider — NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status — suitable for disambiguation; call npi_get_provider with an NPI for the full record. At least one search criterion is required, and the registry rejects state-only searches (pair state with another filter). The registry does not treat location as a hard filter for specialty searches, so location-constrained results are post-filtered server-side to the requested city/state/postal_code. The registry never reports a true match total and only the first 1200 matches are reachable, so broad queries are capped — narrow with more filters.',
+    'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s specialization or classification becomes taxonomy_description, and all resolved candidates are returned in metadata. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. At least one search criterion is required, and the registry rejects state-only searches. For specialty searches, returned providers are limited to the requested city/state/postal_code even when the registry includes providers outside that location. The registry never reports a true match total and only the first 1200 matches are reachable, so broad queries are capped.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   errors: [
     {
       reason: 'no_search_criteria',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'No effective search criterion was provided.',
       recovery:
         'Provide at least one of name, organization, specialty, or city — state alone is not accepted by the registry.',
     },
     {
       reason: 'conflicting_specialty',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'Both specialty and taxonomy_description were supplied.',
       recovery:
         'Pass either specialty (plain-language, resolved) or taxonomy_description (exact), not both.',
@@ -87,7 +87,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
     },
     {
       reason: 'invalid_search_field',
-      code: JsonRpcErrorCode.InvalidParams,
+      code: JsonRpcErrorCode.ValidationError,
       when: 'The registry returned a field error (e.g. wildcard under 2 characters, bad provider type).',
       recovery:
         'Read the field error; wildcards need at least 2 leading characters and state needs a companion filter.',
@@ -99,7 +99,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
       .string()
       .optional()
       .describe(
-        "Convenience shortcut: a single person's name, split into first/last heuristically. For precise control use first_name/last_name.",
+        "One person's name. The first token becomes first_name and the last token becomes last_name; use first_name/last_name when middle names or multi-part surnames matter.",
       ),
     first_name: z
       .string()
@@ -146,7 +146,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
       ])
       .optional()
       .describe(
-        '2-letter state code (e.g. "WA"). The registry rejects state-only searches — pair it with another criterion. Blank values from form-based clients are treated as omitted.',
+        '2-letter state code (e.g. "WA"). The registry rejects state-only searches, so another criterion is required. A blank value is treated as omitted.',
       ),
     postal_code: z
       .string()
@@ -182,24 +182,24 @@ export const searchProvidersTool = tool('npi_search_providers', {
           description: z
             .string()
             .describe(
-              'The taxonomy description (specialization or classification) the registry matched on — the value sent as taxonomy_description.',
+              'Search-compatible NUCC specialization or classification for this candidate.',
             ),
         }),
       )
       .optional()
       .describe(
-        'The taxonomy candidates the specialty term resolved to; the first was sent to the registry. Re-run with taxonomy_description to pick a different one.',
+        'Taxonomy candidates ranked for the specialty term. The first candidate supplies appliedTaxonomyDescription; a different candidate can be selected through taxonomy_description.',
       ),
     appliedTaxonomyDescription: z
       .string()
       .optional()
-      .describe(
-        'The single taxonomy_description sent to the registry (from specialty resolution or the raw escape hatch).',
-      ),
+      .describe('The exact NUCC specialization or classification used as the specialty filter.'),
     truncated: z
       .boolean()
       .optional()
-      .describe('True when the returned page hit the limit — more may match.'),
+      .describe(
+        'True when the NPPES page contained at least cap providers before location constraints were applied; more may match even when shown is below cap.',
+      ),
     shown: z.number().optional().describe('Number of providers returned.'),
     cap: z.number().optional().describe('The limit that was applied.'),
     notice: z
@@ -244,7 +244,8 @@ export const searchProvidersTool = tool('npi_search_providers', {
       // description (specialization, else classification) — NOT the NUCC display
       // name (which carries a "... Physician" suffix the API rejects). Resolve to
       // the API-accepted description and send the top match; echo all candidates
-      // with their codes so the agent can re-run with a different taxonomy_description.
+      // with their codes so alternate candidates remain selectable through
+      // taxonomy_description.
       resolvedTaxonomies = hits.map((h) => ({
         code: h.code,
         description: h.specialization ?? h.classification,
@@ -301,7 +302,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
     // NPPES does not treat the requested city/state/postal_code as a hard filter
     // when taxonomy_description is present — it returns providers outside the
     // requested location. Post-filter the normalized rows by whichever location
-    // fields the caller actually provided so out-of-location rows aren't presented
+    // fields were requested so out-of-location rows aren't presented
     // as matches. City compares case-insensitively (rows are upstream-uppercase);
     // postal_code prefix-matches to tolerate the 5-vs-9-digit ZIP+4 split.
     const rawCount = providers.length;

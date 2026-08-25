@@ -13,8 +13,8 @@
  */
 
 import type { Context } from '@cyanheads/mcp-ts-core';
-import { invalidParams, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
-import { fetchWithTimeout, requestContextService, withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { serviceUnavailable, validationError } from '@cyanheads/mcp-ts-core/errors';
+import { fetchWithTimeout, withRetry } from '@cyanheads/mcp-ts-core/utils';
 
 import { getServerConfig } from '@/config/server-config.js';
 import type {
@@ -139,10 +139,6 @@ export class NppesService {
     ctx: Context,
     operation: string,
   ): Promise<RawNppesResponse> {
-    const reqCtx = requestContextService.createRequestContext({
-      operation,
-      parentContext: { requestId: ctx.requestId, ...(ctx.traceId ? { traceId: ctx.traceId } : {}) },
-    });
     return withRetry(
       async () => {
         const url = new URL(`${this.baseUrl}/`);
@@ -151,7 +147,7 @@ export class NppesService {
           url.searchParams.set(key, String(value));
         }
 
-        const response = await fetchWithTimeout(url, this.timeoutMs, reqCtx, {
+        const response = await fetchWithTimeout(url, this.timeoutMs, ctx, {
           signal: ctx.signal,
         });
         const text = await response.text();
@@ -180,7 +176,7 @@ export class NppesService {
       },
       {
         operation,
-        context: reqCtx,
+        context: ctx,
         baseDelayMs: 500, // CMS API is fast and generous; ephemeral failures dominate.
         signal: ctx.signal,
       },
@@ -190,12 +186,12 @@ export class NppesService {
   /**
    * Map an `Errors[]` body to a typed throw. All three field-error reasons
    * (`no_search_criteria`, `invalid_npi_format`, `invalid_search_field`) are
-   * `InvalidParams`; the distinction is carried in `data.reason` for the contract.
+   * semantic `ValidationError`s; the distinction is carried in `data.reason` for the contract.
    * Deterministic — `retryable: false` so `withRetry` fails fast.
    */
   private throwForErrors(errors: RawNppesError[], ctx: Context): never {
     const reason = reasonForErrorNumber(errors[0]?.number);
-    throw invalidParams(describeErrors(errors), {
+    throw validationError(describeErrors(errors), {
       reason,
       retryable: false,
       ...ctx.recoveryFor(reason),

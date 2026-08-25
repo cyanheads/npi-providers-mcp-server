@@ -294,13 +294,6 @@ export const getProviderTool = tool('npi_get_provider', {
 
   errors: [
     {
-      reason: 'invalid_npi_format',
-      code: JsonRpcErrorCode.InvalidParams,
-      when: 'An NPI is not exactly 10 digits (caught by the input schema before any API call).',
-      recovery:
-        'NPIs are exactly 10 digits — check the value; use npi_search_providers to find one by name.',
-    },
-    {
       reason: 'none_found',
       code: JsonRpcErrorCode.NotFound,
       when: 'Every requested NPI returned a confirmed no-record response — none failed with an upstream error (those surface as the underlying service/timeout error instead).',
