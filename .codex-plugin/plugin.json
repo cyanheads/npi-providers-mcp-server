@@ -1,11 +1,11 @@
 {
   "name": "npi-providers-mcp-server",
-  "version": "0.1.7",
-  "description": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes.",
+  "version": "0.1.8",
+  "description": "Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP.",
   "author": {
-    "name": "cyanheads",
+    "name": "Casey Hand",
     "email": "casey@caseyjhand.com",
-    "url": "https://github.com/cyanheads"
+    "url": "https://caseyjhand.com"
   },
   "homepage": "https://github.com/cyanheads/npi-providers-mcp-server",
   "repository": "https://github.com/cyanheads/npi-providers-mcp-server",
@@ -14,7 +14,7 @@
   "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "npi-providers-mcp-server",
-    "shortDescription": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes.",
+    "shortDescription": "Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP.",
     "longDescription": "US healthcare provider directory over the live, keyless NPPES NPI Registry API, plus a bundled NUCC Healthcare Provider Taxonomy code set for offline specialty resolution. Search providers by name, organization, specialty, or location; decode any NPI to its full record (taxonomies, addresses, credentials, identifiers, status); and resolve plain-language specialties to taxonomy codes.",
     "developerName": "cyanheads",
     "category": "data",

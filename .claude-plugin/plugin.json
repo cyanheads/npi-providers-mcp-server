@@ -1,9 +1,11 @@
 {
   "name": "npi-providers-mcp-server",
-  "version": "0.1.7",
-  "description": "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes.",
+  "version": "0.1.8",
+  "description": "Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP.",
   "author": {
-    "name": "cyanheads"
+    "name": "Casey Hand",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
   },
   "homepage": "https://github.com/cyanheads/npi-providers-mcp-server",
   "repository": "https://github.com/cyanheads/npi-providers-mcp-server",

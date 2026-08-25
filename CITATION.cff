@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: npi-providers-mcp-server
-abstract: "Look up US healthcare providers in the NPPES NPI registry and resolve NUCC specialty codes via MCP. STDIO or Streamable HTTP."
+abstract: "Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP."
 type: software
 authors:
   - family-names: Hand

@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.8](changelog/0.1.x/0.1.8.md) — 2026-08-24
+
+Adopt MCP SDK v2 compatibility, stricter tool contracts, cache hints, explicit stateless serving, and expanded correctness test lanes
+
 ## [0.1.7](changelog/0.1.x/0.1.7.md) — 2026-07-11
 
 Ship the NOTICE file in the npm tarball so the AMA/NUCC taxonomy attribution reaches npm consumers (#2)

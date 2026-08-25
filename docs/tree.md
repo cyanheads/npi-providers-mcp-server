@@ -1,10 +1,9 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-07-11 17:51:51
+Generated on: 2026-08-25 02:16:32
 
 ```text
 npi-providers-mcp-server/
-├── .claude/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── .codex-plugin/
@@ -15,6 +14,8 @@ npi-providers-mcp-server/
 │   │   ├── bug_report.yml
 │   │   ├── config.yml
 │   │   └── feature_request.yml
+│   ├── CODE_OF_CONDUCT.md
+│   ├── CONTRIBUTING.md
 │   ├── FUNDING.yml
 │   └── SECURITY.md
 ├── .vscode/
@@ -154,6 +155,10 @@ npi-providers-mcp-server/
 │   │       └── types.ts
 │   └── index.ts
 ├── tests/
+│   ├── fuzz/
+│   │   └── nppes-response.fuzz.test.ts
+│   ├── integration/
+│   │   └── correctness-boundaries.integration.test.ts
 │   ├── mcp-server/
 │   │   ├── resources/
 │   │   │   ├── provider.resource.test.ts
@@ -169,6 +174,8 @@ npi-providers-mcp-server/
 │   │   │   └── nppes-service.test.ts
 │   │   └── taxonomy/
 │   │       └── taxonomy-service.test.ts
+│   ├── smoke/
+│   │   └── public-surface.smoke.test.ts
 │   └── tools/
 ├── .dockerignore
 ├── .env.example
