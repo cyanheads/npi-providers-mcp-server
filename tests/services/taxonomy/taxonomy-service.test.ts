@@ -86,6 +86,38 @@ describe('TaxonomyService', () => {
     it('returns empty for a whitespace-only query', () => {
       expect(svc.resolve('   ', 10)).toEqual([]);
     });
+
+    it('normalizes case and surrounding whitespace without changing the match set', () => {
+      const canonical = svc.resolve('cardiovascular disease', 20).map((entry) => entry.code);
+      const variant = svc.resolve('  CaRdIoVaScUlAr   DiSeAsE  ', 20).map((entry) => entry.code);
+      expect(variant).toEqual(canonical);
+    });
+
+    it('returns multiple auditable candidates for an ambiguous specialty term', () => {
+      const hits = svc.resolve('pain medicine', 20);
+      expect(hits.length).toBeGreaterThan(3);
+      expect(new Set(hits.map((entry) => entry.code)).size).toBe(hits.length);
+      expect(hits.every((entry) => /pain medicine/i.test(entry.displayName))).toBe(true);
+    });
+
+    it('returns the several specialties matched by a partial medical term', () => {
+      const hits = svc.resolve('medicine', 20);
+      expect(hits.length).toBeGreaterThan(5);
+      expect(hits.some((entry) => entry.code === '207R00000X')).toBe(true);
+      expect(hits.some((entry) => entry.code === '207Q00000X')).toBe(true);
+    });
+
+    it.skip('excludes inactive taxonomy codes from plain-language resolution (#16)', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/16
+      const hits = svc.resolve('graphics designer', 20);
+      expect(hits.map((entry) => entry.code)).not.toContain('1744G0900X');
+    });
+
+    it.skip('ranks representative general specialties above narrow variants (#10)', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/10
+      expect(svc.resolve('oncologist', 1)[0]?.code).toBe('207RX0202X');
+      expect(svc.resolve('endocrinologist', 1)[0]?.code).toBe('207RE0101X');
+    });
   });
 
   describe('resolve — lay terms, noise words, and abbreviations (#1)', () => {

@@ -42,20 +42,20 @@ describe('providerResource', () => {
         addresses: [],
       },
     ]);
-    const params = providerResource.params.parse({ npi: '1720034424' });
+    const params = providerResource.params!.parse({ npi: '1720034424' });
     const result = await providerResource.handler(params, ctx());
     expect(result).toMatchObject({ npi: '1720034424', name: 'JOSEPH ABATE', status: 'active' });
   });
 
   it('throws no_record when the NPI has no registry record', async () => {
     stub([]);
-    const params = providerResource.params.parse({ npi: '1234567893' });
+    const params = providerResource.params!.parse({ npi: '1234567893' });
     await expect(providerResource.handler(params, ctx())).rejects.toMatchObject({
       data: { reason: 'no_record' },
     });
   });
 
   it('rejects a malformed NPI at the params boundary', () => {
-    expect(() => providerResource.params.parse({ npi: '123' })).toThrow();
+    expect(() => providerResource.params!.parse({ npi: '123' })).toThrow();
   });
 });

@@ -3,6 +3,7 @@
  * @module tests/mcp-server/resources/taxonomy.resource.test
  */
 
+import type { McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { taxonomyResource } from '@/mcp-server/resources/definitions/taxonomy.resource.js';
@@ -16,21 +17,21 @@ const ctx = () => createMockContext({ errors: taxonomyResource.errors });
 
 describe('taxonomyResource', () => {
   it('returns the entry for a valid code', async () => {
-    const params = taxonomyResource.params.parse({ code: '207RC0000X' });
+    const params = taxonomyResource.params!.parse({ code: '207RC0000X' });
     const result = await taxonomyResource.handler(params, ctx());
     expect(result).toMatchObject({ code: '207RC0000X', specialization: 'Cardiovascular Disease' });
   });
 
   it('throws no_match for an unknown but well-formed code', async () => {
-    const params = taxonomyResource.params.parse({ code: '000ZZZ000X' });
+    const params = taxonomyResource.params!.parse({ code: '000ZZZ000X' });
     // The resource handler is synchronous — capture its throw as a value.
-    const err = await Promise.resolve()
+    const err = (await Promise.resolve()
       .then(() => taxonomyResource.handler(params, ctx()))
-      .catch((e) => e);
+      .catch((error: unknown) => error)) as McpError;
     expect(err?.data?.reason).toBe('no_match');
   });
 
   it('rejects a malformed code at the params boundary', () => {
-    expect(() => taxonomyResource.params.parse({ code: '207RC0000' })).toThrow();
+    expect(() => taxonomyResource.params!.parse({ code: '207RC0000' })).toThrow();
   });
 });

@@ -5,6 +5,7 @@
  * @module tests/services/nppes/nppes-service.test
  */
 
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NppesService } from '@/services/nppes/nppes-service.js';
@@ -204,6 +205,37 @@ describe('NppesService.getByNumber', () => {
     });
   });
 
+  it('omits malformed identifiers/endpoints and non-finite epoch values', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1720034424,
+          enumeration_type: 'NPI-1',
+          created_epoch: 'not-an-epoch',
+          last_updated_epoch: Number.POSITIVE_INFINITY,
+          basic: { first_name: 'JOSEPH', last_name: 'ABATE', status: 'A' },
+          taxonomies: [],
+          identifiers: [
+            { identifier: '  ', desc: 'EMPTY' },
+            { identifier: 'WA-123', desc: 'MEDICAID' },
+          ],
+          endpoints: [
+            { endpoint: '  ', endpointType: 'FHIR' },
+            { endpoint: 'https://example.test/fhir', endpointType: 'FHIR' },
+          ],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec?.createdEpoch).toBeUndefined();
+    expect(rec?.lastUpdatedEpoch).toBeUndefined();
+    expect(rec?.identifiers).toEqual([{ identifier: 'WA-123', description: 'MEDICAID' }]);
+    expect(rec?.endpoints).toEqual([
+      { endpoint: 'https://example.test/fhir', endpointType: 'FHIR' },
+    ]);
+  });
+
   it('drops the "--" placeholder on individual name prefix/suffix but keeps real values (#6)', async () => {
     stubJson({
       result_count: 1,
@@ -348,6 +380,7 @@ describe('NppesService Errors[]-on-200 detection', () => {
   it('maps number:04 (no criteria) to no_search_criteria and is non-retryable', async () => {
     stubJson({ Errors: [{ description: 'No valid search criteria', field: '', number: '04' }] });
     const err = await svc.search({ limit: 10, skip: 0 }, ctx).catch((e) => e);
+    expect(err.code).toBe(JsonRpcErrorCode.ValidationError);
     expect(err.data.reason).toBe('no_search_criteria');
     expect(err.data.retryable).toBe(false);
   });
@@ -355,6 +388,7 @@ describe('NppesService Errors[]-on-200 detection', () => {
   it('maps number:06 (NPI not 10 digits) to invalid_npi_format', async () => {
     stubJson({ Errors: [{ description: 'NPI must be 10 digits', field: 'number', number: '06' }] });
     const err = await svc.getByNumber('123', ctx).catch((e) => e);
+    expect(err.code).toBe(JsonRpcErrorCode.ValidationError);
     expect(err.data.reason).toBe('invalid_npi_format');
   });
 
@@ -363,6 +397,7 @@ describe('NppesService Errors[]-on-200 detection', () => {
       Errors: [{ description: 'State requires additional criteria', field: 'state', number: '07' }],
     });
     const err = await svc.search({ state: 'WA', limit: 10, skip: 0 }, ctx).catch((e) => e);
+    expect(err.code).toBe(JsonRpcErrorCode.ValidationError);
     expect(err.data.reason).toBe('invalid_search_field');
   });
 });
@@ -390,5 +425,34 @@ describe('NppesService.search', () => {
   it('returns an empty array when the registry returns no results', async () => {
     stubJson({ result_count: 0, results: [] });
     expect(await svc.search({ lastName: 'zzzznosuchname', limit: 10, skip: 0 }, ctx)).toEqual([]);
+  });
+
+  it('normalizes an organization summary and falls back to its first taxonomy', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1234567893,
+          enumeration_type: 'NPI-2',
+          basic: { name: 'FALLBACK HEALTH', status: 'A' },
+          taxonomies: [
+            { code: '193200000X', desc: 'Multi-Specialty', primary: false },
+            { code: '193400000X', desc: 'Single Specialty', primary: false },
+          ],
+          addresses: [
+            { address_purpose: 'MAILING', city: 'TACOMA', state: 'WA' },
+            { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '98102' },
+          ],
+        },
+      ],
+    });
+    const rows = await svc.search({ organizationName: 'Fallback Health', limit: 10, skip: 0 }, ctx);
+    expect(rows[0]).toMatchObject({
+      npi: '1234567893',
+      type: 'organization',
+      name: 'FALLBACK HEALTH',
+      city: 'SEATTLE',
+      primaryTaxonomy: { code: '193200000X', description: 'Multi-Specialty' },
+    });
   });
 });

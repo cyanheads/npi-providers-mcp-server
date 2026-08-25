@@ -18,6 +18,19 @@ beforeAll(() => {
 
 const ctx = () => createMockContext({ errors: searchProvidersTool.errors });
 
+interface SearchEnrichment {
+  appliedTaxonomyDescription?: string;
+  cap?: number;
+  notice?: string;
+  resolvedTaxonomies?: { code: string; description: string }[];
+  shown?: number;
+  truncated?: boolean;
+}
+
+function enrichment(c: ReturnType<typeof ctx>): SearchEnrichment {
+  return getEnrichment(c) as SearchEnrichment;
+}
+
 function stubResults(results: unknown[]): void {
   vi.stubGlobal(
     'fetch',
@@ -75,7 +88,7 @@ describe('searchProvidersTool', () => {
       status: 'active',
       city: 'Seattle',
     });
-    const enrich = getEnrichment(c);
+    const enrich = enrichment(c);
     expect(enrich.resolvedTaxonomies?.length).toBeGreaterThan(0);
     expect(enrich.appliedTaxonomyDescription).toBeDefined();
     // Must resolve to the API-accepted description, not the "... Physician" display name.
@@ -131,8 +144,8 @@ describe('searchProvidersTool', () => {
       limit: 10,
     });
     await searchProvidersTool.handler(input, c);
-    expect(getEnrichment(c).appliedTaxonomyDescription).toBe('Cardiovascular Disease');
-    expect(getEnrichment(c).resolvedTaxonomies).toBeUndefined();
+    expect(enrichment(c).appliedTaxonomyDescription).toBe('Cardiovascular Disease');
+    expect(enrichment(c).resolvedTaxonomies).toBeUndefined();
   });
 
   it('discloses truncation and the page-size-not-total caveat on a full page', async () => {
@@ -141,7 +154,7 @@ describe('searchProvidersTool', () => {
     const input = searchProvidersTool.input.parse({ last_name: 'smith', limit: 2 });
     const result = await searchProvidersTool.handler(input, c);
     expect(result.providers).toHaveLength(2);
-    const enrich = getEnrichment(c);
+    const enrich = enrichment(c);
     expect(enrich.truncated).toBe(true);
     expect(enrich.notice).toMatch(/1200|page size|narrow/i);
   });
@@ -152,12 +165,13 @@ describe('searchProvidersTool', () => {
     const input = searchProvidersTool.input.parse({ last_name: 'zzzznosuchname', limit: 10 });
     const result = await searchProvidersTool.handler(input, c);
     expect(result.providers).toEqual([]);
-    expect(getEnrichment(c).notice).toBeDefined();
+    expect(enrichment(c).notice).toBeDefined();
   });
 
   it('uses the name_search shortcut to derive first/last', async () => {
     const fetchSpy = vi.fn(
-      async () => new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
     );
     vi.stubGlobal('fetch', fetchSpy);
     const input = searchProvidersTool.input.parse({ name_search: 'Joseph Abate', limit: 10 });
@@ -165,6 +179,48 @@ describe('searchProvidersTool', () => {
     const calledUrl = String(fetchSpy.mock.calls[0]?.[0]);
     expect(calledUrl).toContain('first_name=Joseph');
     expect(calledUrl).toContain('last_name=Abate');
+  });
+
+  it('uses a one-token name_search as the last name only', async () => {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const input = searchProvidersTool.input.parse({ name_search: 'Abate', limit: 10 });
+    await searchProvidersTool.handler(input, ctx());
+    const calledUrl = String(fetchSpy.mock.calls[0]?.[0]);
+    expect(calledUrl).toContain('last_name=Abate');
+    expect(calledUrl).not.toContain('first_name=');
+  });
+
+  it('infers organization enumeration and forwards all populated criteria', async () => {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const input = searchProvidersTool.input.parse({
+      organization_name: 'Example Health',
+      taxonomy_description: 'Multi-Specialty',
+      city: 'Seattle',
+      state: 'WA',
+      postal_code: '98101',
+      skip: 20,
+      limit: 25,
+    });
+    await searchProvidersTool.handler(input, ctx());
+    const calledUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(Object.fromEntries(calledUrl.searchParams)).toMatchObject({
+      enumeration_type: 'NPI-2',
+      organization_name: 'Example Health',
+      taxonomy_description: 'Multi-Specialty',
+      city: 'Seattle',
+      state: 'WA',
+      postal_code: '98101',
+      skip: '20',
+      limit: '25',
+    });
   });
 
   it('format: renders provider rows with NPI, specialty, status', () => {
@@ -191,11 +247,33 @@ describe('searchProvidersTool', () => {
     expect(text).toContain('Seattle');
   });
 
+  it('format: renders an honest empty response and sparse provider row', () => {
+    expect(searchProvidersTool.format!({ providers: [] })).toEqual([
+      { type: 'text', text: 'No providers matched.' },
+    ]);
+    const blocks = searchProvidersTool.format!({
+      providers: [
+        {
+          npi: '1234567893',
+          type: 'organization',
+          name: 'EXAMPLE HEALTH',
+          status: 'deactivated',
+        },
+      ],
+    });
+    const text = blocks.map((block) => (block.type === 'text' ? block.text : '')).join('\n');
+    expect(text).toContain('1234567893');
+    expect(text).toContain('deactivated');
+    expect(text).not.toContain('Primary specialty');
+    expect(text).not.toContain('Location:');
+  });
+
   // ── #5: blank optional state from form clients ──────────────────────────────
 
   it('accepts a blank state from a form client and omits it from the query (#5)', async () => {
     const fetchSpy = vi.fn(
-      async () => new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
     );
     vi.stubGlobal('fetch', fetchSpy);
     const input = searchProvidersTool.input.parse({ last_name: 'Abate', state: '', limit: 1 });
@@ -207,7 +285,8 @@ describe('searchProvidersTool', () => {
 
   it('applies a valid state to the query (#5)', async () => {
     const fetchSpy = vi.fn(
-      async () => new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
     );
     vi.stubGlobal('fetch', fetchSpy);
     const input = searchProvidersTool.input.parse({ last_name: 'Abate', state: 'WA', limit: 1 });
@@ -239,7 +318,7 @@ describe('searchProvidersTool', () => {
     expect(result.providers).toHaveLength(1);
     expect(result.providers[0]).toMatchObject({ npi: '1720034424', city: 'Seattle', state: 'WA' });
     expect(result.providers.some((p) => p.state === 'UT')).toBe(false);
-    expect(getEnrichment(c).notice).toMatch(/1 out-of-location row/i);
+    expect(enrichment(c).notice).toMatch(/1 out-of-location row/i);
   });
 
   it('emits a distinct notice when upstream matched but nothing was in the location (#4)', async () => {
@@ -253,7 +332,7 @@ describe('searchProvidersTool', () => {
     });
     const result = await searchProvidersTool.handler(input, c);
     expect(result.providers).toEqual([]);
-    const notice = getEnrichment(c).notice ?? '';
+    const notice = enrichment(c).notice ?? '';
     expect(notice).toMatch(/none were in the requested location/i);
     // Must NOT be the generic "broaden the specialty" notice — the specialty DID match.
     expect(notice).not.toMatch(/substring matching on specialty/i);
@@ -272,7 +351,7 @@ describe('searchProvidersTool', () => {
     });
     const result = await searchProvidersTool.handler(input, c);
     expect(result.providers).toHaveLength(1);
-    const enrich = getEnrichment(c);
+    const enrich = enrichment(c);
     expect(enrich.truncated).toBe(true);
     expect(enrich.shown).toBe(1); // kept count, not the raw page size
   });
@@ -314,6 +393,20 @@ describe('searchProvidersTool', () => {
     const result = await searchProvidersTool.handler(input, c);
     expect(result.providers).toHaveLength(1);
     expect(result.providers[0]?.postalCode).toBe('981012345');
+  });
+
+  it('post-filters a 9-digit request against a 5-digit row ZIP prefix (#4)', async () => {
+    const fiveDigitZip = {
+      ...ROW,
+      addresses: [
+        { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '98101' },
+      ],
+    };
+    stubResults([fiveDigitZip]);
+    const input = searchProvidersTool.input.parse({ postal_code: '981012345', limit: 10 });
+    const result = await searchProvidersTool.handler(input, ctx());
+    expect(result.providers).toHaveLength(1);
+    expect(result.providers[0]?.postalCode).toBe('98101');
   });
 
   it('format: renders the postal code on the location line (#4)', () => {

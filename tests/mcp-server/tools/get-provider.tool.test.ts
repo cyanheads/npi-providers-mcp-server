@@ -6,7 +6,7 @@
  * @module tests/mcp-server/tools/get-provider.tool.test
  */
 
-import { JsonRpcErrorCode, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode, type McpError, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getProviderTool } from '@/mcp-server/tools/definitions/get-provider.tool.js';
@@ -84,7 +84,9 @@ describe('getProviderTool', () => {
       serviceUnavailable('NPPES registry unavailable — connection refused.'),
     );
     const input = getProviderTool.input.parse({ npis: ['1720034424', '1999999984'] });
-    const err = await getProviderTool.handler(input, ctx()).catch((e) => e);
+    const err = (await Promise.resolve(getProviderTool.handler(input, ctx())).catch(
+      (error: unknown) => error,
+    )) as McpError;
     // An operational failure must never masquerade as a confirmed miss.
     expect(err?.data?.reason).not.toBe('none_found');
     expect(err?.code).toBe(JsonRpcErrorCode.ServiceUnavailable);
@@ -178,6 +180,19 @@ describe('getProviderTool', () => {
             },
           ],
         },
+        {
+          npi: '1111111112',
+          type: 'organization',
+          status: 'active',
+          name: 'MINIMAL CLINIC',
+          authorizedOfficial: {},
+          taxonomies: [],
+          addresses: [],
+          practiceLocations: [],
+          identifiers: [],
+          otherNames: [],
+          endpoints: [],
+        },
       ],
       notFound: [{ npi: '1234567893', reason: 'No record in the NPPES registry for this NPI.' }],
       errored: [
@@ -199,5 +214,118 @@ describe('getProviderTool', () => {
     // #8 errored partition renders, distinct from not-found
     expect(text).toContain('Errored');
     expect(text).toContain('1999999984');
+  });
+
+  it('format: renders organization identity and every populated professional record section', () => {
+    const blocks = getProviderTool.format!({
+      found: [
+        {
+          npi: '1234567893',
+          type: 'organization',
+          status: 'active',
+          name: 'EXAMPLE HEALTH SYSTEM',
+          organizationName: 'EXAMPLE HEALTH SYSTEM LLC',
+          soleProprietor: 'NO',
+          organizationalSubpart: 'YES',
+          enumerationDate: '2006-05-23',
+          lastUpdated: '2026-01-01',
+          certificationDate: '2026-01-02',
+          authorizedOfficial: {
+            namePrefix: 'Dr.',
+            firstName: 'ALEX',
+            middleName: 'Q',
+            lastName: 'ADMIN',
+            nameSuffix: 'Jr.',
+            credential: 'MD',
+            title: 'DIRECTOR',
+            telephoneNumber: '206-555-0100',
+          },
+          taxonomies: [
+            {
+              code: '193200000X',
+              description: 'Multi-Specialty',
+              primary: false,
+              license: 'ORG-123',
+              state: 'WA',
+              taxonomyGroup: '193200000X MULTI-SPECIALTY GROUP',
+            },
+          ],
+          addresses: [
+            {
+              purpose: 'LOCATION',
+              addressType: 'DOM',
+              line1: '500 CLINIC AVE',
+              line2: 'SUITE 200',
+              city: 'SEATTLE',
+              state: 'WA',
+              postalCode: '98102',
+              countryCode: 'US',
+              countryName: 'United States',
+              telephoneNumber: '206-555-0101',
+              faxNumber: '206-555-0102',
+            },
+          ],
+          practiceLocations: [
+            {
+              purpose: 'LOCATION',
+              line1: '600 SATELLITE WAY',
+              city: 'BELLEVUE',
+              state: 'WA',
+            },
+          ],
+          identifiers: [
+            {
+              code: '05',
+              description: 'MEDICAID',
+              identifier: 'WA-999',
+              issuer: 'Washington HCA',
+              state: 'WA',
+            },
+          ],
+          otherNames: [
+            {
+              type: 'Former Legal Business Name',
+              organizationName: 'EXAMPLE CLINIC',
+              credential: 'DBA',
+            },
+          ],
+          endpoints: [
+            {
+              endpoint: 'https://example.test/fhir',
+              endpointType: 'FHIR',
+              endpointTypeDescription: 'FHIR URL',
+              use: 'HIE',
+              useDescription: 'Health Information Exchange',
+              contentType: 'FHIR',
+              contentTypeDescription: 'FHIR R4',
+              affiliation: 'Y',
+              affiliationName: 'EXAMPLE HEALTH SYSTEM',
+              addressType: 'DOM',
+              line1: '500 CLINIC AVE',
+              city: 'SEATTLE',
+              state: 'WA',
+              postalCode: '98102',
+              countryCode: 'US',
+              countryName: 'United States',
+            },
+          ],
+        },
+      ],
+      notFound: [],
+      errored: [],
+    });
+    const text = blocks.map((block) => (block.type === 'text' ? block.text : '')).join('\n');
+    for (const expected of [
+      'EXAMPLE HEALTH SYSTEM LLC',
+      'Dr. ALEX Q ADMIN Jr.',
+      'ORG-123',
+      'SUITE 200',
+      'Washington HCA',
+      'EXAMPLE CLINIC',
+      'FHIR R4',
+      'United States',
+    ]) {
+      expect(text).toContain(expected);
+    }
   });
 });
