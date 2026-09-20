@@ -91,6 +91,8 @@ export const searchProvidersTool = tool('npi_search_providers', {
       when: 'The registry returned a field error (e.g. wildcard under 2 characters, bad provider type).',
       recovery:
         'Read the field error; wildcards need at least 2 leading characters and state needs a companion filter.',
+      // Raised by the NPPES service's Errors[]-on-200 mapping, not by this handler.
+      thrownBy: 'service',
     },
   ],
 

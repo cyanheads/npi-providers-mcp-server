@@ -16,6 +16,12 @@ import { initTaxonomyService } from './services/taxonomy/taxonomy-service.js';
 await createApp({
   name: 'npi-providers-mcp-server',
   title: 'npi-providers-mcp-server',
+  /**
+   * No tool or resource calls `ctx.requestInput`, so nothing needs a session to
+   * answer a mid-handler prompt. Declared here as the durable form; a deployment's
+   * `MCP_SESSION_MODE` still wins when it carries a meaningful value.
+   */
+  sessionMode: 'stateless',
   cacheHints: {
     'tools/list': { ttlMs: 3_600_000, cacheScope: 'public' },
     'resources/list': { ttlMs: 3_600_000, cacheScope: 'public' },
