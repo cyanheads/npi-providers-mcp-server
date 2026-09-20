@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "npi-providers-mcp-server",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "license": "Apache-2.0",
   "description": "Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP.",
   "author": {
