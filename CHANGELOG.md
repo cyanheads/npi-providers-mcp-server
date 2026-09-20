@@ -4,7 +4,7 @@ All notable changes to this project. Each entry links to its full per-version fi
 
 ## [0.1.9](changelog/0.1.x/0.1.9.md) — 2026-09-20
 
-Adopt @cyanheads/mcp-ts-core ^0.13.6 — tool arguments pass a pre-validation step that drops client-added keys and rewrites case-style spellings, and the upstream request URL no longer reaches client-facing error data.
+Adopt @cyanheads/mcp-ts-core ^0.13.6 — tool arguments pass a pre-validation step that drops client-added keys and rewrites case-style spellings, and an out-of-schema argument is rejected as InvalidParams carrying a schema-derived recovery hint.
 
 ## [0.1.8](changelog/0.1.x/0.1.8.md) — 2026-08-24
 
