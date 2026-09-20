@@ -27,9 +27,11 @@
 
 ---
 
-## Tools
+## Overview
 
-Three tools covering the provider directory — search the registry, decode an NPI to its full record, and resolve plain-language specialties through the bundled taxonomy:
+US healthcare provider directory over the NPPES NPI Registry, with plain-language specialty terms resolved offline against a bundled NUCC taxonomy. Search providers by name, organization, location, and specialty; decode NPIs into full provider records; and resolve or browse the NUCC taxonomy directly. Runs as a stdio process, a local Streamable HTTP server, or the public hosted endpoint above.
+
+### Tools
 
 | Tool | Description |
 |:---|:---|
@@ -37,57 +39,60 @@ Three tools covering the provider directory — search the registry, decode an N
 | `npi_get_provider` | Fetch the complete NPPES record for up to 10 NPIs — taxonomies, addresses, credentials, identifiers, endpoints, and status. |
 | `npi_lookup_taxonomy` | Resolve, fetch, or browse the NUCC Healthcare Provider Taxonomy — fully offline. |
 
-### `npi_search_providers`
+### Resources
 
-Search the registry for individual practitioners and organizations, with specialty resolution and honest pagination disclosure.
+| Resource | Description |
+|:---|:---|
+| `npi://provider/{npi}` | A single provider's full decoded record by NPI — the resource twin of `npi_get_provider`. |
+| `npi://taxonomy/{code}` | A single NUCC taxonomy entry by code — the resource twin of `npi_lookup_taxonomy` mode `get`. |
 
-- Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`)
-- Plain-language `specialty` (e.g. "cardiologist") resolves through the bundled NUCC taxonomy to the registry's exact descriptions before searching; the resolved taxonomy is echoed back so you can see what was actually searched
-- `taxonomy_description` escape hatch for callers who already hold an exact NUCC description (mutually exclusive with `specialty`)
-- Trailing-wildcard (`*`) name matching, with the registry's ≥2-leading-character rule documented inline
-- Discloses that the returned count is the page size — never a grand total — and that only the first 1200 matches are reachable, steering broad queries toward narrower filters
+All resource data is also reachable via tools; the resources are convenience twins for resource-capable clients.
+
+## Capability reference
+
+### `npi_search_providers` <sub>tool</sub>
+
+- Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`); at least one criterion is required and the registry rejects state-only searches
+- Plain-language `specialty` resolves through the bundled NUCC taxonomy to the registry's exact description before searching, echoed back via `resolvedTaxonomies` / `appliedTaxonomyDescription`; `taxonomy_description` is an escape hatch for an already-known exact description (mutually exclusive with `specialty`)
+- Trailing-wildcard (`*`) name/organization matching requires at least 2 leading characters
+- `limit` 1–200 (default 10), `skip` 0–1000; the registry never reports a true match total, only the first 1200 matches are reachable, and the response discloses page-size-not-total via `truncated` / `notice`
+- Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `unresolved_specialty`, `invalid_search_field`
 
 ---
 
-### `npi_get_provider`
+### `npi_get_provider` <sub>tool</sub>
 
-Decode one or more NPIs into fully populated provider profiles — the tool to turn an NPI from a claim, prescription, or another health data source into a known provider.
-
-- Batch fetch up to 10 NPIs per call; the 10-digit format is validated before any API call
-- Returns every taxonomy (with its primary flag, license number and state), all practice and mailing addresses, credential, sex, sole-proprietor flag, enumeration and last-updated dates, secondary identifiers (Medicaid, etc.), and FHIR/Direct endpoints
-- Partial-success reporting — well-formed NPIs with no registry record (deactivated or never enumerated) land in `notFound` rather than failing the whole call
+- Accepts a single NPI or up to 10; each is validated as exactly 10 digits before any API call
+- Returns every taxonomy (with primary flag, license number and state), all practice and mailing addresses, credential, sex, sole-proprietor flag, enumeration and last-updated dates, secondary identifiers, and FHIR/Direct endpoints
+- Three-way partition: `found` (resolved records), `notFound` (confirmed absence — deactivated or never enumerated), `errored` (upstream failure, distinct from absence — retry these)
+- Throws `none_found` only when every requested NPI is a confirmed absence; an upstream failure on any NPI surfaces as that underlying error instead
 
 ---
 
-### `npi_lookup_taxonomy`
+### `npi_lookup_taxonomy` <sub>tool</sub>
 
-Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline from the bundled code set.
+- Three modes: `resolve` (plain-language term → matching codes/descriptions), `get` (exact code → full entry), `browse` (walk grouping → classification → specialization, filterable by grouping and NPI `section`)
+- `resolve` / `browse` cap results at `limit` (≤50, default 20) and disclose `truncated`; page past the cap with `skip` (0–1000, raised by `limit` each call)
+- A resolved entry's `specialization` (or `classification` when specialization is absent) is the exact value `npi_search_providers.taxonomy_description` accepts
+- Typed error reasons: `no_match`, `missing_argument`
 
-- `resolve` — turn a plain-language specialty into matching taxonomy codes and canonical descriptions (the value the search tools filter on); plain-language phrasing ("heart doctor", "eye doctor") and common abbreviations ("ent", "obgyn") resolve to the right physician entry
-- `get` — return the full entry for an exact taxonomy code
-- `browse` — walk the hierarchy (grouping → classification → specialization), filterable by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2)
+---
 
-`resolve` and `browse` cap results at `limit` (≤50) and disclose `truncated`; page past the cap with `skip` (raise it by `limit` each call, same query/filters) so every bundled entry stays reachable. `skip` is ignored for `get`.
+### `npi://provider/{npi}` <sub>resource</sub>
 
-## Resources and prompts
+- Returns the same fully decoded record as `npi_get_provider`, for one NPI, as `application/json`
+- `npi` must be a well-formed 10-digit NPI; `no_record` when the registry has none (deactivated or never enumerated)
 
-| Type | Name | Description |
-|:---|:---|:---|
-| Resource | `npi://provider/{npi}` | A single provider's full decoded record by NPI — the resource twin of `npi_get_provider`. |
-| Resource | `npi://taxonomy/{code}` | A single NUCC taxonomy entry by code — the resource twin of `npi_lookup_taxonomy` mode `get`. |
+---
 
-All resource data is also reachable via tools. The resources are convenience twins for resource-capable clients; tool-only clients lose nothing.
+### `npi://taxonomy/{code}` <sub>resource</sub>
+
+- Returns the same entry as `npi_lookup_taxonomy` mode `get`, as `application/json`; cached publicly for 24 hours
+- `code` must match `^\d{3}[A-Z0-9]{6}X$`; `no_match` when no entry exists for the code
 
 ## Features
 
-Built on [`@cyanheads/mcp-ts-core`](https://www.npmjs.com/package/@cyanheads/mcp-ts-core):
-
-- Declarative tool and resource definitions — single file per primitive, framework handles registration and validation
-- Unified error handling — handlers throw, framework catches, classifies, and formats
-- Pluggable auth: `none`, `jwt`, `oauth`
-- Swappable storage backends: `in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`
-- Structured logging with optional OpenTelemetry tracing
-- STDIO and Streamable HTTP transports
+Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): stdio and Streamable HTTP transports, pluggable auth (`none` / `jwt` / `oauth`), swappable storage (`in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`), structured logging with optional OpenTelemetry tracing.
 
 NPI/NPPES-specific:
 
@@ -100,7 +105,7 @@ Agent-friendly output:
 
 - Provenance on search — the resolved taxonomy and the exact `taxonomy_description` sent to the registry are echoed back, so agents can see what was actually searched and re-run with a different code
 - Honest pagination — the returned count is disclosed as the page size, never a fabricated grand total, with the 1200-match reachable ceiling surfaced when a broad query is capped
-- Graceful partial failure — `npi_get_provider` returns per-NPI `found` / `notFound` rows instead of failing the whole batch when some NPIs are deactivated or never enumerated
+- Graceful partial failure — `npi_get_provider` returns per-NPI `found` / `notFound` / `errored` rows instead of failing the whole batch
 
 ## Getting started
 
@@ -119,7 +124,7 @@ A public instance is available at `https://npi-providers.caseyjhand.com/mcp` —
 }
 ```
 
-### Self-hosted / local install
+### Self-Hosted / Local
 
 Add the following to your MCP client configuration file. No API key is required — the upstream NPPES registry is keyless.
 
@@ -180,7 +185,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
 
 ### Prerequisites
 
-- [Bun v1.3.0](https://bun.sh/) or higher (or Node.js v24+).
+- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
 - No API key — the NPPES NPI Registry API is public and keyless. The NUCC taxonomy is bundled, so there is no second data source to provision.
 
 ### Installation
@@ -282,9 +287,13 @@ See [`CLAUDE.md`/`AGENTS.md`](./CLAUDE.md) for development guidelines and archit
 - Register new tools and resources in the `createApp()` arrays
 - Wrap external API calls: validate raw → normalize to domain type → return output schema; never fabricate missing fields
 
+## Data attribution
+
+Provider data from the [CMS NPPES NPI Registry](https://npiregistry.cms.hhs.gov/) (public domain). The bundled specialty codes are the [NUCC Health Care Provider Taxonomy](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40), © American Medical Association on behalf of the National Uniform Claim Committee (NUCC), redistributed unmodified beyond formatting under the [NUCC permission](https://www.nucc.org/index.php/nucc-structure-mainmenu-36/contact-us-mainmenu-34?id=111). See [`NOTICE`](NOTICE).
+
 ## Contributing
 
-Issues and pull requests are welcome. Run checks and tests before submitting:
+Issues are welcome. Run checks and tests before submitting:
 
 ```sh
 bun run devcheck
@@ -294,7 +303,3 @@ bun run test
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE) for details.
-
----
-
-Provider data from the [CMS NPPES NPI Registry](https://npiregistry.cms.hhs.gov/) (public domain). The bundled specialty codes are the [NUCC Health Care Provider Taxonomy](https://www.nucc.org/index.php/code-sets-mainmenu-41/provider-taxonomy-mainmenu-40), © American Medical Association on behalf of the National Uniform Claim Committee (NUCC), redistributed unmodified beyond formatting under the [NUCC permission](https://www.nucc.org/index.php/nucc-structure-mainmenu-36/contact-us-mainmenu-34?id=111). See [`NOTICE`](NOTICE).
