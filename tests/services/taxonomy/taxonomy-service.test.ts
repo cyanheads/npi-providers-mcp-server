@@ -6,7 +6,11 @@
 
 import { describe, expect, it } from 'vitest';
 import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
-import { PREFERRED_ENTRIES, TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import {
+  PREFERRED_ENTRIES,
+  stopWordOnlyQuery,
+  TaxonomyService,
+} from '@/services/taxonomy/taxonomy-service.js';
 
 const svc = new TaxonomyService();
 
@@ -80,7 +84,7 @@ describe('TaxonomyService', () => {
     });
 
     it('respects the limit', () => {
-      const hits = svc.resolve('physician', 3);
+      const hits = svc.resolve('nurse', 3);
       expect(hits.length).toBeLessThanOrEqual(3);
     });
 
@@ -168,8 +172,11 @@ describe('TaxonomyService', () => {
       expect(svc.resolve('gastroenterologist', 1)[0]?.code).toBe('207RG0100X');
     });
 
-    it('a query of only stop-words still resolves rather than becoming empty', () => {
-      expect(svc.resolve('physician', 3).length).toBeGreaterThan(0);
+    it('a query of only stop-words names no specialty: no match, flagged for the browse hint (#31)', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/31 — replaces the old
+      // fallback that matched the stop words' own stems ("physician" → Radiological Physics).
+      expect(svc.resolve('physician', 3)).toEqual([]);
+      expect(stopWordOnlyQuery('physician')).toBe('physician');
     });
   });
 
@@ -555,9 +562,9 @@ describe('TaxonomyService', () => {
     });
 
     it('resolve: skip pages the ranked result set deterministically with no overlap', () => {
-      const all = svc.resolve('physician', 1000);
-      const page1 = svc.resolve('physician', 3, 0);
-      const page2 = svc.resolve('physician', 3, 3);
+      const all = svc.resolve('nurse', 1000);
+      const page1 = svc.resolve('nurse', 3, 0);
+      const page2 = svc.resolve('nurse', 3, 3);
       expect(page1.map((h) => h.code)).toEqual(all.slice(0, 3).map((h) => h.code));
       expect(page2.map((h) => h.code)).toEqual(all.slice(3, 6).map((h) => h.code));
       expect(page1.some((h) => page2.some((p) => p.code === h.code))).toBe(false);
@@ -764,5 +771,224 @@ describe('TaxonomyService', () => {
       });
       expect(page.find((e) => e.code === '103TE1000X')).toMatchObject({ status: 'inactive' });
     });
+  });
+
+  describe('resolve — credential abbreviations (#27)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/27
+    const TABLE: readonly (readonly [string, string])[] = [
+      ['rn', '163W00000X'], // Registered Nurse
+      ['np', '363L00000X'], // Nurse Practitioner
+      ['pa', '363A00000X'], // Physician Assistant
+      ['crna', '367500000X'], // Certified Registered Nurse Anesthetist
+      ['lpn', '164W00000X'], // Licensed Practical Nurse
+      ['lvn', '164X00000X'], // Licensed Vocational Nurse
+      ['emt', '146N00000X'], // Basic Emergency Medical Technician
+      ['er', '207P00000X'], // Emergency Medicine Physician
+      ['er doctor', '207P00000X'],
+      ['RN', '163W00000X'],
+    ];
+
+    it.each(TABLE)('"%s" resolves to %s first', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it('every target is an active bundled code', () => {
+      for (const [, code] of TABLE) expect(svc.get(code)?.status).toBe('active');
+    });
+
+    it('"rn" never leads with the Non-RN lactation consultant', () => {
+      expect(svc.resolve('rn', 1)[0]?.code).not.toBe('174N00000X');
+    });
+
+    it('"pa" returns no pathology or pain-medicine code', () => {
+      const hits = svc.resolve('pa', 1000);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(
+        hits.filter((e) => /patholog|pain/i.test(`${e.classification} ${e.specialization ?? ''}`)),
+      ).toEqual([]);
+    });
+
+    it('"er" and "er doctor" never reach the Ergonomics therapist entries', () => {
+      for (const query of ['er', 'er doctor']) {
+        const codes = svc.resolve(query, 1000).map((e) => e.code);
+        expect(codes).not.toContain('2251E1200X');
+        expect(codes).not.toContain('225XE1200X');
+      }
+    });
+
+    it('"emt" reaches every EMT level, Basic first', () => {
+      const codes = svc.resolve('emt', 1000).map((e) => e.code);
+      expect(codes[0]).toBe('146N00000X');
+      expect(codes).toEqual(expect.arrayContaining(['146M00000X', '146L00000X']));
+    });
+
+    it.each([
+      ['nurse practitioner', '363L00000X'],
+      ['registered nurse', '163W00000X'],
+      ['physician assistant', '363A00000X'],
+      ['emergency medicine', '207P00000X'],
+      ['licensed practical nurse', '164W00000X'],
+      ['paramedic', '146E00000X'],
+      ['pain', '208VP0000X'],
+    ])('"%s" keeps %s first (characterization)', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+  });
+
+  describe('resolve — dotted abbreviations and one-letter tokens (#29)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/29
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+
+    it.each([
+      ['pa', 3, ['363A00000X', '363AM0700X', '363AS0400X']],
+      ['rn', 58, ['163W00000X', '163WR0006X', '174N00000X', '163WF0300X', '163WS0200X']],
+      ['np', 18, ['363L00000X', '363LF0000X', '363LS0200X', '363LN0000X', '363LP1700X']],
+      ['crna', 1, ['367500000X']],
+      ['x ray', 1, ['335V00000X']],
+      ['portable x ray', 1, ['335V00000X']],
+      ['ent', 8, ['207Y00000X', '207YX0905X', '207YP0228X', '207YX0901X', '207YX0602X']],
+      ['ob gyn', 12, ['207V00000X', '207VG0400X', '207VX0000X', '207VX0201X', '207VC0300X']],
+      ['dentist', 22, ['122300000X', '122400000X', '124Q00000X', '125J00000X', '126800000X']],
+      ['clinical genetics', 4, ['207SC0300X', '207SG0201X', '207SG0203X', '207SG0202X']],
+      ['legal medicine', 2, ['209800000X', '173000000X']],
+    ] as const)(
+      '"%s" keeps its %i matches and leading order (characterization)',
+      (query, count, lead) => {
+        const hits = codes(query);
+        expect(hits).toHaveLength(count);
+        expect(hits.slice(0, lead.length)).toEqual(lead);
+      },
+    );
+
+    it.each([
+      ['P.A.', 'pa'],
+      ['p.a', 'pa'],
+      ['R.N.', 'rn'],
+      ['N.P.', 'np'],
+      ['C.R.N.A.', 'crna'],
+      ['L.P.N.', 'lpn'],
+      ['E.M.T.', 'emt'],
+      ['E.R. doctor', 'er doctor'],
+    ])('"%s" resolves exactly as "%s"', (dotted, plain) => {
+      expect(codes(plain).length).toBeGreaterThan(0);
+      expect(codes(dotted)).toEqual(codes(plain));
+    });
+
+    it.each([
+      ['M.D.', 'md'],
+      ['D.O.', 'do'],
+    ])('"%s" resolves as the stop word "%s", never through its single letters', (dotted, plain) => {
+      expect(codes(dotted)).toEqual(codes(plain));
+      expect(codes('M.D.')).toEqual([]);
+    });
+
+    it.each(['a', 'p a', 'r n', 'q'])('the one-letter query "%s" matches nothing', (query) => {
+      expect(codes(query)).toEqual([]);
+    });
+
+    it('a one-letter query matches only entries carrying that letter as a whole word', () => {
+      const hits = svc.resolve('d', 1000);
+      expect(hits.map((e) => e.code).sort()).toEqual(
+        ['170100000X', '204E00000X', '207SG0201X', '207SG0205X', '209800000X'].sort(),
+      );
+    });
+  });
+
+  describe('resolve — a query of only stop words names no specialty (#31)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/31
+    it.each([
+      ['physician assistant', 22, '363A00000X'],
+      ['heart doctor', 8, '207RC0000X'],
+      ['nurse specialist', 112, '364S00000X'],
+      ['sports physician', 15, '207QS0010X'],
+      ['family doctor', 19, '207Q00000X'],
+      ['primary care physician', 44, '207Q00000X'],
+      ['nurse', 112, '376K00000X'],
+    ] as const)('"%s" keeps its %i matches, %s first (characterization)', (query, count, top) => {
+      const hits = svc.resolve(query, 1000);
+      expect(hits).toHaveLength(count);
+      expect(hits[0]?.code).toBe(top);
+    });
+
+    it.each([
+      'physician assistant',
+      'heart doctor',
+      'nurse specialist',
+      'sports physician',
+      'family doctor',
+      'nurse',
+    ])('"%s" carries a non-stop word, so it is not a stop-word-only query', (query) => {
+      expect(stopWordOnlyQuery(query)).toBeUndefined();
+    });
+
+    it.each([
+      ['do', 'physician'],
+      ['D.O.', 'physician'],
+      ['md', 'physician'],
+      ['M.D.', 'physician'],
+      ['physician', 'physician'],
+      ['Doctor', 'physician'],
+      ['physician doctor', 'physician'],
+      ['specialist', 'other'],
+      ['provider', 'other'],
+      ['provider specialist', 'other'],
+    ] as const)('"%s" matches nothing and is a stop-word-only query (%s)', (query, kind) => {
+      expect(svc.resolveWithInactive(query, 1000)).toEqual({ matches: [], inactiveMatches: [] });
+      expect(stopWordOnlyQuery(query)).toBe(kind);
+    });
+
+    it('a blank query is not a stop-word-only query', () => {
+      expect(stopWordOnlyQuery('   ')).toBeUndefined();
+    });
+  });
+
+  describe('resolve — plural stop words (#32)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/32
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+
+    it.each([
+      ['eye doctor', 10, '207W00000X'],
+      ['kidney doctor', 7, '207RN0300X'],
+    ] as const)('"%s" keeps its %i matches, %s first (characterization)', (query, count, top) => {
+      const hits = codes(query);
+      expect(hits).toHaveLength(count);
+      expect(hits[0]).toBe(top);
+    });
+
+    it.each([
+      ['heart doctors', 'heart doctor'],
+      ['eye doctors', 'eye doctor'],
+      ['kidney doctors', 'kidney doctor'],
+      ['family doctors', 'family doctor'],
+      ['sports physicians', 'sports physician'],
+      ['primary care physicians', 'primary care physician'],
+      ['nurse specialists', 'nurse specialist'],
+      ['health care providers', 'health care provider'],
+    ])('"%s" resolves exactly as "%s"', (plural, singular) => {
+      expect(codes(singular).length).toBeGreaterThan(0);
+      expect(codes(plural)).toEqual(codes(singular));
+    });
+
+    it.each([
+      ['physicians', 'physician'],
+      ['doctors', 'physician'],
+      ['Doctors', 'physician'],
+      ['MDs', 'physician'],
+      ['D.O.s', 'physician'],
+      ['physicians doctors', 'physician'],
+      ['specialists', 'other'],
+      ['providers', 'other'],
+      ['providers specialists', 'other'],
+    ] as const)('"%s" matches nothing and is a stop-word-only query (%s)', (query, kind) => {
+      expect(svc.resolveWithInactive(query, 1000)).toEqual({ matches: [], inactiveMatches: [] });
+      expect(stopWordOnlyQuery(query)).toBe(kind);
+    });
+
+    it.each(['heart doctors', 'sports physicians', 'nurse specialists'])(
+      '"%s" carries a non-stop word, so it is not a stop-word-only query',
+      (query) => {
+        expect(stopWordOnlyQuery(query)).toBeUndefined();
+      },
+    );
   });
 });

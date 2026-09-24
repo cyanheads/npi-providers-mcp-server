@@ -59,7 +59,7 @@ describe('lookupTaxonomyTool', () => {
   });
 
   it('resolve: discloses truncation when more matches than the limit', async () => {
-    const input = lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'physician', limit: 2 });
+    const input = lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'nurse', limit: 2 });
     const c = ctx();
     const result = await lookupTaxonomyTool.handler(input, c);
     expect(result.matches).toHaveLength(2);
@@ -188,7 +188,7 @@ describe('lookupTaxonomyTool', () => {
   it('resolve: truncation guidance points at skip as the continuation mechanism (#7)', async () => {
     const c = ctx();
     await lookupTaxonomyTool.handler(
-      lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'physician', limit: 2 }),
+      lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'nurse', limit: 2 }),
       c,
     );
     expect(getEnrichment(c).notice).toMatch(/skip=2/);
@@ -548,4 +548,129 @@ describe('lookupTaxonomyTool resolve: therapist and pediatric ranking (#24, #25)
     expect(past.structured.matches).toEqual([]);
     expect(past.structured.notice).toMatch(/No more matches beyond skip=5/);
   });
+});
+
+describe('lookupTaxonomyTool dotted abbreviations (#29)', () => {
+  // https://github.com/cyanheads/npi-providers-mcp-server/issues/29
+  it('resolve: "P.A." returns the Physician Assistant codes in both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'P.A.' });
+    expect(structured.matches?.map((m) => m.code)).toEqual([
+      '363A00000X',
+      '363AM0700X',
+      '363AS0400X',
+    ]);
+    expect(text).toContain('**Code:** 363A00000X');
+    expect(text).not.toContain('207ZP0101X');
+  });
+
+  it('resolve: "M.D." and a one-letter query end in no_match rather than a single-letter hit', async () => {
+    for (const query of ['M.D.', 'p a']) {
+      const { isError, structured, text } = await run({ mode: 'resolve', query });
+      expect(isError).toBe(true);
+      expect(structured.error?.data?.reason).toBe('no_match');
+      expect(text).toMatch(/Recovery:/);
+    }
+  });
+});
+
+describe('lookupTaxonomyTool stop-word-only queries (#31)', () => {
+  // https://github.com/cyanheads/npi-providers-mcp-server/issues/31
+  type ErrorData = { reason?: string; recovery?: { hint?: string } };
+
+  it.each(['do', 'D.O.', 'md', 'M.D.', 'physician', 'doctor'])(
+    'resolve: "%s" fails with no_match and points to browse the physician grouping',
+    async (query) => {
+      const { isError, structured, text } = await run({ mode: 'resolve', query });
+      expect(isError).toBe(true);
+      const data = structured.error?.data as ErrorData | undefined;
+      expect(data?.reason).toBe('no_match');
+      expect(structured.error?.message).toBe(`"${query}" names no specialty on its own.`);
+      expect(data?.recovery?.hint).toMatch(/mode browse/);
+      expect(data?.recovery?.hint).toContain('grouping "Allopathic & Osteopathic Physicians"');
+      expect(text).toContain(`"${query}" names no specialty on its own.`);
+      expect(text).toContain('Recovery:');
+      expect(text).toContain('grouping "Allopathic & Osteopathic Physicians"');
+    },
+  );
+
+  it.each(['specialist', 'provider'])(
+    'resolve: "%s" fails with no_match and points to browse without naming a grouping',
+    async (query) => {
+      const { isError, structured, text } = await run({ mode: 'resolve', query });
+      expect(isError).toBe(true);
+      const data = structured.error?.data as ErrorData | undefined;
+      expect(data?.reason).toBe('no_match');
+      expect(data?.recovery?.hint).toMatch(/mode browse/);
+      expect(data?.recovery?.hint).not.toContain('Allopathic');
+      expect(text).toMatch(/Recovery:.*mode browse/);
+    },
+  );
+
+  it.each([
+    ['physician assistant', '363A00000X'],
+    ['heart doctor', '207RC0000X'],
+    ['nurse specialist', '364S00000X'],
+    ['sports physician', '207QS0010X'],
+    ['family doctor', '207Q00000X'],
+  ])('resolve: "%s" still leads with %s (characterization)', async (query, code) => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query, limit: 1 });
+    expect(isError).toBe(false);
+    expect(structured.matches?.[0]?.code).toBe(code);
+    expect(text).toContain(`**Code:** ${code}`);
+  });
+});
+
+describe('lookupTaxonomyTool plural stop words (#32)', () => {
+  // https://github.com/cyanheads/npi-providers-mcp-server/issues/32
+  type ErrorData = { reason?: string; recovery?: { hint?: string } };
+
+  it.each(['physicians', 'doctors', 'MDs'])(
+    'resolve: "%s" fails with no_match and points to browse the physician grouping',
+    async (query) => {
+      const { isError, structured, text } = await run({ mode: 'resolve', query });
+      expect(isError).toBe(true);
+      const data = structured.error?.data as ErrorData | undefined;
+      expect(structured.error?.code).toBe(JsonRpcErrorCode.NotFound);
+      expect(data?.reason).toBe('no_match');
+      expect(structured.error?.message).toBe(`"${query}" names no specialty on its own.`);
+      expect(data?.recovery?.hint).toContain(
+        'mode browse with grouping "Allopathic & Osteopathic Physicians"',
+      );
+      expect(text).toContain(`"${query}" names no specialty on its own.`);
+      expect(text).toContain('Recovery:');
+      expect(text).toContain('grouping "Allopathic & Osteopathic Physicians"');
+    },
+  );
+
+  it.each(['specialists', 'providers'])(
+    'resolve: "%s" fails with no_match and points to browse without naming a grouping',
+    async (query) => {
+      const { isError, structured, text } = await run({ mode: 'resolve', query });
+      expect(isError).toBe(true);
+      const data = structured.error?.data as ErrorData | undefined;
+      expect(data?.reason).toBe('no_match');
+      expect(structured.error?.message).toBe(`"${query}" names no specialty on its own.`);
+      expect(data?.recovery?.hint).toMatch(/mode browse/);
+      expect(data?.recovery?.hint).not.toContain('Allopathic');
+      expect(text).toMatch(/Recovery:.*mode browse/);
+    },
+  );
+
+  it.each([
+    ['heart doctors', 'heart doctor'],
+    ['eye doctors', 'eye doctor'],
+    ['kidney doctors', 'kidney doctor'],
+  ])(
+    'resolve: "%s" returns the same entries as "%s" on both surfaces',
+    async (plural, singular) => {
+      const expected = await run({ mode: 'resolve', query: singular, limit: 50 });
+      const actual = await run({ mode: 'resolve', query: plural, limit: 50 });
+      expect(expected.isError).toBe(false);
+      expect(actual.isError).toBe(false);
+      expect(actual.structured.matches?.map((m) => m.code)).toEqual(
+        expected.structured.matches?.map((m) => m.code),
+      );
+      expect(actual.text).toBe(expected.text);
+    },
+  );
 });

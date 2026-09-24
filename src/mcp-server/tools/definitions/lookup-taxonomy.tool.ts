@@ -9,6 +9,7 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import {
   describeInactiveEntries,
   getTaxonomyService,
+  stopWordOnlyQuery,
 } from '@/services/taxonomy/taxonomy-service.js';
 import type { TaxonomyEntry } from '@/services/taxonomy/types.js';
 
@@ -172,7 +173,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     {
       reason: 'no_match',
       code: JsonRpcErrorCode.NotFound,
-      when: 'A get code matched no taxonomy entry, or a resolve query matched no active one (the message names any inactive codes it matched).',
+      when: 'A get code matched no taxonomy entry, a resolve query matched no active one (the message names any inactive codes it matched), or a resolve query was made only of generic words ("doctor", "M.D.", "specialist") that name no specialty.',
       recovery: 'Try a broader term, or use mode browse to walk groupings then classifications.',
     },
     {
@@ -207,6 +208,18 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
       if (!query) {
         throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.', {
           ...ctx.recoveryFor('missing_argument'),
+        });
+      }
+      // "doctor", "M.D.", "specialist" alone name no specialty; point at browse, not a bare miss.
+      const stopWordsOnly = stopWordOnlyQuery(query);
+      if (stopWordsOnly) {
+        throw ctx.fail('no_match', `"${query}" names no specialty on its own.`, {
+          recovery: {
+            hint:
+              stopWordsOnly === 'physician'
+                ? 'Use mode browse with grouping "Allopathic & Osteopathic Physicians" to list physician specialties, or add the specialty to the query (e.g. "heart doctor").'
+                : 'Use mode browse to walk groupings then classifications, or add the specialty to the query (e.g. "nurse specialist").',
+          },
         });
       }
       // Fetch one past the cap to detect truncation honestly.

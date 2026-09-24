@@ -114,10 +114,11 @@ function searchableText(words: string[]): string {
 /**
  * Generic role nouns that name no NUCC specialty on their own (the vocabulary says
  * "Physician"/"Surgery", never "doctor"), so a plain-language phrase routinely carries
- * one — "heart doctor", "eye doctor" — that would zero the whole strict-AND query.
- * Stripped from the *query's required terms* only; the index keeps every word. A stripped
- * word still counts toward ranking: an entry whose own name carries it ("Physician
- * Assistant", "Clinical Nurse Specialist") ranks ahead of siblings (see `selfNameRank`).
+ * one — "heart doctor", "eye doctors" — that would zero the whole strict-AND query.
+ * Stripped, singular or plural (see `stopWordOf`), from the *query's required terms* only;
+ * the index keeps every word. A stripped word still counts toward ranking: an entry whose
+ * own name carries it ("Physician Assistant", "Clinical Nurse Specialist") ranks ahead of
+ * siblings (see `selfNameRank`).
  */
 const STOP_WORDS: ReadonlySet<string> = new Set([
   'doctor',
@@ -128,6 +129,16 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
   'do',
 ]);
 
+/**
+ * The stop word a normalized query word is, singular or plural ("doctors" → "doctor",
+ * "MDs" → "md"), or `undefined` when it is not one.
+ */
+function stopWordOf(word: string): string | undefined {
+  if (STOP_WORDS.has(word)) return word;
+  const singular = word.endsWith('s') ? word.slice(0, -1) : '';
+  return STOP_WORDS.has(singular) ? singular : undefined;
+}
+
 /** A query split into required stemmed tokens and the stemmed stop words stripped from it. */
 interface QueryTokens {
   stopWords: string[];
@@ -135,20 +146,55 @@ interface QueryTokens {
 }
 
 /**
- * Tokenize a *query*: normalize → split off stop-words → stem. Distinct from the index-side
- * `tokenize` (which keeps every word) so noise words don't zero a match. When the query is
- * *only* stop-words (e.g. "physician"), nothing is stripped, so a degenerate query still
- * resolves rather than silently becoming empty.
+ * Join a dotted abbreviation — single letters separated by periods — into one word:
+ * "P.A." → "PA", "c.r.n.a" → "crna". Normalization would otherwise split it into one-letter
+ * tokens. "Ph.D." is not a run of single letters and is left alone. Query-side only; the
+ * index keeps NUCC's own text.
+ */
+function joinDottedLetters(s: string): string {
+  return s.replace(/(?<![\p{L}\p{N}])\p{L}(?:\.\p{L})+(?![\p{L}\p{N}])\.?/gu, (run) =>
+    run.replaceAll('.', ''),
+  );
+}
+
+/** A query's normalized words, dotted abbreviations joined first. Empty for a blank query. */
+function queryWords(s: string): string[] {
+  const n = normalize(joinDottedLetters(s));
+  return n.length === 0 ? [] : n.split(' ');
+}
+
+/** Stop words that name a physician, so a query of them points at the physician grouping. */
+const PHYSICIAN_STOP_WORDS: ReadonlySet<string> = new Set(['doctor', 'physician', 'md', 'do']);
+
+/**
+ * Whether a query is made only of stop words (singular or plural), and so names no specialty:
+ * `'physician'` when one of them names a physician ("doctors", "M.D."), `'other'` for
+ * "specialist"/"provider" alone, `undefined` when the query carries any other word (or none).
+ * `resolve` returns nothing for such a query; callers use this to point at `browse` instead of
+ * a bare miss.
+ */
+export function stopWordOnlyQuery(query: string): 'physician' | 'other' | undefined {
+  const words = queryWords(query);
+  const stopWords = words.map(stopWordOf).filter((w) => w !== undefined);
+  if (words.length === 0 || stopWords.length < words.length) return;
+  return stopWords.some((w) => PHYSICIAN_STOP_WORDS.has(w)) ? 'physician' : 'other';
+}
+
+/**
+ * Tokenize a *query*: join dotted abbreviations → normalize → split off stop-words (singular
+ * or plural) → stem. Distinct from the index-side `tokenize` (which keeps every word) so noise
+ * words don't zero a match. A query made only of stop-words (e.g. "physicians", "M.D.") names
+ * no specialty and yields no required terms, so it matches nothing — matching the stop words'
+ * own stems would answer "physician" with Radiological Physics. Callers name the miss through
+ * {@link stopWordOnlyQuery} and point at `browse`.
  */
 function tokenizeQuery(s: string): QueryTokens {
-  const n = normalize(s);
-  if (n.length === 0) return { tokens: [], stopWords: [] };
-  const raw = n.split(' ');
-  const kept = raw.filter((t) => !STOP_WORDS.has(t));
-  if (kept.length === 0) return { tokens: raw.map(stemToken).filter(Boolean), stopWords: [] };
+  const raw = queryWords(s);
+  const kept = raw.filter((t) => !stopWordOf(t));
+  if (kept.length === 0) return { tokens: [], stopWords: [] };
   return {
     tokens: kept.map(stemToken).filter(Boolean),
-    stopWords: raw.filter((t) => STOP_WORDS.has(t)).map(stemToken),
+    stopWords: raw.flatMap((t) => stopWordOf(t) ?? []).map(stemToken),
   };
 }
 
@@ -166,6 +212,8 @@ function tokenizeQuery(s: string): QueryTokens {
  *   - Lay terms and abbreviations with no stem in common: `heart`, `eye` (Ophthalmology),
  *     `ent` (Otolaryngology), `kidney`, `cancer`, `obgyn`; phrases `speech therap(y)` →
  *     "Speech-Language Pathologist", `primary care` → Family and Internal Medicine.
+ *   - Credential abbreviations: `rn`, `np`, `pa`, `crna`, `lpn`, `lvn`, `emt`, and `er`
+ *     (Emergency Medicine), each to the NUCC name of that profession.
  * Whole-word matching of the key keeps a short abbreviation from landing inside an
  * unrelated word: bare "ent" reaches Otolaryngology, never "gastroENTerology". Terms whose
  * own word already names their specialty (radiology, neurology, …) need no alias.
@@ -190,6 +238,14 @@ const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   'speech therap': ['speech language patholog'], // "speech therapist"
   'speech therapy': ['speech language patholog'],
   'primary care': ['family medicine', 'internal medicine'],
+  rn: ['registered nurse'],
+  np: ['nurse practitioner'],
+  pa: ['physic assistant'], // stemmed "physician assistant"
+  crna: ['nurse anesthet'], // "Nurse Anesthetist, Certified Registered"
+  lpn: ['licensed practical nurse'],
+  lvn: ['licensed vocational nurse'],
+  emt: ['emergency medical technic'], // every level; PREFERRED_ENTRIES puts Basic first
+  er: ['emergency medicine'],
 };
 
 /**
@@ -203,8 +259,9 @@ const WHOLE_WORD_WHEN_ALONE: ReadonlySet<string> = new Set(['therap']);
 
 /**
  * A required query term — one token, or a two-token alias phrase — with its aliases and
- * whether the term itself must match a whole word (aliased keys, and `WHOLE_WORD_WHEN_ALONE`
- * stems queried alone) rather than a word start.
+ * whether the term itself must match a whole word (aliased keys, one-letter tokens, and
+ * `WHOLE_WORD_WHEN_ALONE` stems queried alone) rather than a word start. A single letter
+ * as a word start would match every word beginning with it.
  */
 interface QueryTerm {
   aliases: readonly string[];
@@ -233,7 +290,7 @@ function toTerms(tokens: readonly string[]): QueryTerm[] {
       const text = tokens[i] as string;
       const aliases = lookup(TOKEN_ALIASES, text) ?? [];
       const alone = tokens.length === 1 && WHOLE_WORD_WHEN_ALONE.has(text);
-      terms.push({ text, aliases, wholeWord: aliases.length > 0 || alone });
+      terms.push({ text, aliases, wholeWord: aliases.length > 0 || alone || text.length === 1 });
       i += 1;
     }
   }
@@ -261,6 +318,7 @@ export const PREFERRED_ENTRIES: Readonly<Record<string, string>> = {
   patholog: '207ZP0102X', // Anatomic Pathology & Clinical Pathology, not Cytopathology
   geriatric: '207RG0300X', // Geriatric Medicine (Internal Medicine), not Geriatric Psychiatry
   pharmac: '183500000X', // Pharmacist, not Clinical Pharmacology (a physician)
+  emt: '146N00000X', // Basic Emergency Medical Technician, not the shorter-named Paramedic
 };
 
 /**
