@@ -9,7 +9,10 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
 import type { NppesSearchParams, ProviderLocation } from '@/services/nppes/types.js';
-import { getTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import {
+  describeInactiveEntries,
+  getTaxonomyService,
+} from '@/services/taxonomy/taxonomy-service.js';
 
 /** Heuristically split a single name string into first/last parts. */
 function splitName(nameSearch: string): { firstName?: string; lastName?: string } {
@@ -125,7 +128,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
     {
       reason: 'unresolved_specialty',
       code: JsonRpcErrorCode.NotFound,
-      when: 'The specialty term matched no NUCC taxonomy.',
+      when: 'The specialty term matched no active NUCC taxonomy (the message names any inactive codes it matched).',
       recovery:
         'Call npi_lookup_taxonomy mode resolve to find a valid specialty, or pass taxonomy_description directly.',
     },
@@ -173,7 +176,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
       .string()
       .optional()
       .describe(
-        'Plain-language specialty (e.g. "pediatric cardiologist"), resolved through the bundled NUCC taxonomy to exact descriptions before searching. The matched taxonomy is echoed in the result. Mutually exclusive with taxonomy_description.',
+        'Plain-language specialty (e.g. "pediatric cardiologist"), resolved through the bundled NUCC taxonomy to exact descriptions before searching. Codes NUCC marks inactive are never resolved. The matched taxonomy is echoed in the result. Mutually exclusive with taxonomy_description.',
       ),
     taxonomy_description: z
       .string()
@@ -278,11 +281,14 @@ export const searchProvidersTool = tool('npi_search_providers', {
     let resolvedTaxonomies: { code: string; description: string }[] | undefined;
     if (input.specialty?.trim()) {
       const taxonomy = getTaxonomyService();
-      const hits = taxonomy.resolve(input.specialty, 5);
+      const { matches: hits, inactiveMatches } = taxonomy.resolveWithInactive(input.specialty, 5);
       if (hits.length === 0) {
+        const inactive = describeInactiveEntries(inactiveMatches);
         throw ctx.fail(
           'unresolved_specialty',
-          `Specialty "${input.specialty}" matched no NUCC taxonomy.`,
+          inactive
+            ? `Specialty "${input.specialty}" matched no active NUCC taxonomy. It matched only codes NUCC marks inactive: ${inactive}.`
+            : `Specialty "${input.specialty}" matched no NUCC taxonomy.`,
           { ...ctx.recoveryFor('unresolved_specialty') },
         );
       }

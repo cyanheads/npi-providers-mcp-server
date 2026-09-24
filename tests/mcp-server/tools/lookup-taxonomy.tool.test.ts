@@ -4,7 +4,9 @@
  * @module tests/mcp-server/tools/lookup-taxonomy.tool.test
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import type { z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { lookupTaxonomyTool } from '@/mcp-server/tools/definitions/lookup-taxonomy.tool.js';
 import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
@@ -36,6 +38,15 @@ describe('lookupTaxonomyTool', () => {
   it('resolve: throws no_match for a nonsense term', async () => {
     const input = lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'zzzznotaspecialty' });
     expect((await caught(input, ctx()))?.data?.reason).toBe('no_match');
+  });
+
+  it('resolve: a term named like an Object.prototype key is a plain no_match on both surfaces', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'constructor' });
+    expect(isError).toBe(true);
+    expect(structured.error?.code).toBe(JsonRpcErrorCode.NotFound);
+    expect(structured.error?.data?.reason).toBe('no_match');
+    expect(structured.error?.message).toBe('No taxonomy matched "constructor".');
+    expect(text).toContain('No taxonomy matched "constructor".');
   });
 
   it('resolve: requires query in the advertised mode variant', () => {
@@ -209,6 +220,7 @@ describe('lookupTaxonomyTool', () => {
           specialization: 'Cardiovascular Disease',
           displayName: 'Cardiovascular Disease Physician',
           section: 'Individual',
+          status: 'active',
         },
       ],
     });
@@ -230,6 +242,7 @@ describe('lookupTaxonomyTool', () => {
           displayName: 'Internal Medicine Physician',
           definition: 'A physician who provides long-term, comprehensive care.',
           section: 'Individual',
+          status: 'active',
         },
         {
           code: '207Q00000X',
@@ -237,6 +250,7 @@ describe('lookupTaxonomyTool', () => {
           classification: 'Family Medicine',
           displayName: 'Family Medicine Physician',
           section: 'Individual',
+          status: 'active',
         },
       ],
     });
@@ -244,5 +258,294 @@ describe('lookupTaxonomyTool', () => {
     expect(text).toContain('Taxonomy matches (2)');
     expect(text).toContain('A physician who provides long-term, comprehensive care.');
     expect(text).toContain('207Q00000X');
+  });
+});
+
+type LookupInput = z.input<typeof lookupTaxonomyTool.input>;
+type Entry = Record<string, unknown> & { code: string };
+
+/** Run the tool through its public contract; return both client surfaces. */
+async function run(input: LookupInput) {
+  const result = await runToolContract(lookupTaxonomyTool, input);
+  const text = result.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n');
+  return {
+    isError: result.isError === true,
+    structured: result.structuredContent as {
+      matches?: Entry[];
+      notice?: string;
+      truncated?: boolean;
+      error?: { code: number; message: string; data?: { reason?: string } };
+    },
+    text,
+  };
+}
+
+const PERFUSIONIST_NOTES =
+  'Source:  Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]';
+
+describe('lookupTaxonomyTool NUCC Notes (#11)', () => {
+  it('get: returns the trimmed Notes cell byte for byte on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '242T00000X' });
+    expect(structured.matches?.[0]?.notes).toBe(PERFUSIONIST_NOTES);
+    expect(text).toContain(PERFUSIONIST_NOTES);
+  });
+
+  it('get: omits notes for a code whose Notes cell is empty', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '207QA0505X' });
+    expect(structured.matches?.[0]?.code).toBe('207QA0505X');
+    expect(structured.matches?.[0]).not.toHaveProperty('notes');
+    expect(text).not.toMatch(/\*\*Notes:\*\*/);
+    const withNotes = await run({ mode: 'get', code: '242T00000X' });
+    expect(withNotes.text).toMatch(/\*\*Notes:\*\*/);
+  });
+
+  it('resolve and browse: list entries omit the notes get returns for the same code', async () => {
+    const got = await run({ mode: 'get', code: '242T00000X' });
+    expect(got.structured.matches?.[0]).toHaveProperty('notes');
+    const resolved = await run({ mode: 'resolve', query: 'perfusionist' });
+    expect(resolved.structured.matches?.map((m) => m.code)).toContain('242T00000X');
+    const browsed = await run({ mode: 'browse', limit: 50 });
+    for (const surface of [resolved, browsed]) {
+      expect(surface.structured.matches?.length).toBeGreaterThan(0);
+      for (const match of surface.structured.matches ?? []) {
+        expect(match).not.toHaveProperty('notes');
+      }
+      expect(surface.text).not.toMatch(/\*\*Notes:\*\*/);
+    }
+  });
+});
+
+describe('lookupTaxonomyTool inactive codes (#16)', () => {
+  it('get: flags an inactive code and names its replacement on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '103GC0700X' });
+    expect(structured.matches?.[0]).toMatchObject({
+      code: '103GC0700X',
+      status: 'inactive',
+      replacedBy: '103G00000X',
+    });
+    expect(text).toMatch(/\*\*Status:\*\* inactive/);
+    expect(text).toContain('replaced by 103G00000X');
+  });
+
+  it('get: flags an inactive code with no named replacement', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '1744G0900X' });
+    expect(structured.matches?.[0]).toMatchObject({ code: '1744G0900X', status: 'inactive' });
+    expect(structured.matches?.[0]).not.toHaveProperty('replacedBy');
+    expect(text).toMatch(/\*\*Status:\*\* inactive/);
+    expect(text).not.toMatch(/replaced by/i);
+  });
+
+  it('get: reports an active code as active', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '207RC0000X' });
+    expect(structured.matches?.[0]).toMatchObject({ code: '207RC0000X', status: 'active' });
+    expect(structured.matches?.[0]).not.toHaveProperty('replacedBy');
+    expect(text).toMatch(/\*\*Status:\*\* active/);
+  });
+
+  it('resolve: drops the inactive twin and returns only the active code', async () => {
+    const { structured } = await run({ mode: 'resolve', query: 'clinical neuropsychologist' });
+    expect(structured.matches?.map((m) => [m.code, m.status])).toEqual([['103G00000X', 'active']]);
+  });
+
+  it('resolve: no_match names the inactive code when every match is inactive', async () => {
+    const { isError, structured, text } = await run({
+      mode: 'resolve',
+      query: 'graphics designer',
+    });
+    expect(isError).toBe(true);
+    expect(structured.error?.code).toBe(JsonRpcErrorCode.NotFound);
+    expect(structured.error?.data?.reason).toBe('no_match');
+    expect(structured.error?.message).toContain('1744G0900X');
+    expect(structured.error?.message).toMatch(/inactive/i);
+    expect(text).toContain('1744G0900X');
+    expect(text).toMatch(/Recovery:/);
+  });
+
+  it('resolve: no_match names each inactive code with its replacement', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'christian science' });
+    expect(structured.error?.data?.reason).toBe('no_match');
+    for (const code of ['287300000X', '317400000X', '282J00000X']) {
+      expect(structured.error?.message).toContain(code);
+      expect(text).toContain(code);
+    }
+  });
+
+  it('resolve: the inactive-only no_match message lists each code, name, and replacement (characterization)', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'christian science' });
+    const message =
+      'No active taxonomy matched "christian science". It matched only codes NUCC marks inactive: 287300000X Christian Science Sanitorium (replaced by 282J00000X); 317400000X Christian Science Facility (replaced by 282J00000X).';
+    expect(structured.error?.message).toBe(message);
+    expect(text).toContain(message);
+    const none = await run({ mode: 'resolve', query: 'graphics designer' });
+    expect(none.structured.error?.message).toBe(
+      'No active taxonomy matched "graphics designer". It matched only codes NUCC marks inactive: 1744G0900X Graphics Designer (no replacement named).',
+    );
+  });
+
+  it('resolve: a term with no match at all keeps the plain no_match message (characterization)', async () => {
+    const { structured } = await run({ mode: 'resolve', query: 'zzzznotaspecialty' });
+    expect(structured.error?.data?.reason).toBe('no_match');
+    expect(structured.error?.message).not.toMatch(/inactive/i);
+  });
+
+  it('resolve: skip past an inactive-only match set is an empty page, not no_match (characterization)', async () => {
+    const { isError, structured } = await run({
+      mode: 'resolve',
+      query: 'graphics designer',
+      skip: 20,
+    });
+    expect(isError).toBe(false);
+    expect(structured.matches).toEqual([]);
+    expect(structured.notice).toMatch(/No more matches beyond skip=20/);
+  });
+
+  it('resolve: truncation counts only active matches and pages contiguously', async () => {
+    const all = await run({ mode: 'resolve', query: 'psychologist', limit: 50 });
+    const codes = all.structured.matches?.map((m) => m.code) ?? [];
+    expect(codes).not.toContain('103TE1000X');
+    expect(all.structured.matches?.every((m) => m.status === 'active')).toBe(true);
+    const page1 = await run({ mode: 'resolve', query: 'psychologist', limit: 8 });
+    const page2 = await run({ mode: 'resolve', query: 'psychologist', limit: 8, skip: 8 });
+    expect(page1.structured.truncated).toBe(true);
+    expect(page1.structured.notice).toMatch(/skip=8/);
+    expect([...(page1.structured.matches ?? []), ...(page2.structured.matches ?? [])]).toEqual(
+      all.structured.matches?.slice(0, 16),
+    );
+  });
+
+  it('browse: keeps inactive codes on the page, flagged, on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'browse', limit: 20 });
+    const byCode = new Map(structured.matches?.map((m) => [m.code, m]));
+    expect(byCode.get('103GC0700X')).toMatchObject({
+      status: 'inactive',
+      replacedBy: '103G00000X',
+    });
+    expect(byCode.get('103TE1000X')).toMatchObject({ status: 'inactive' });
+    expect(byCode.get('103G00000X')).toMatchObject({ status: 'active' });
+    expect(text).toMatch(/\*\*Status:\*\* inactive \(replaced by 103G00000X\)/);
+  });
+
+  it('browse: a full skip-walk returns every code once, inactive codes included (#7)', async () => {
+    const walked: Entry[] = [];
+    for (let skip = 0; ; skip += 50) {
+      const page = await run({ mode: 'browse', limit: 50, skip });
+      if (!page.structured.matches?.length) break;
+      walked.push(...page.structured.matches);
+    }
+    const codes = walked.map((m) => m.code);
+    expect(new Set(codes).size).toBe(codes.length);
+    expect(codes).toEqual([...codes].sort((a, b) => a.localeCompare(b)));
+    expect(walked.filter((m) => m.status === 'inactive').map((m) => m.code)).toContain(
+      '1744G0900X',
+    );
+  });
+});
+
+describe('lookupTaxonomyTool resolve ranking and matching (#10, #20, #21, #22)', () => {
+  it('resolve: "dentist" leads with Dentist and carries no mid-word "dent" match', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'dentist', limit: 50 });
+    expect(structured.matches?.[0]?.code).toBe('122300000X');
+    expect(structured.matches?.map((m) => m.code)).not.toContain('202C00000X');
+    expect(text).toMatch(/^## Taxonomy matches \(\d+\)\n\n### Dentist\n/);
+    expect(text).not.toContain('Independent Medical Examiner');
+  });
+
+  it('resolve: "physician assistant" leads with Physician Assistant on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'physician assistant' });
+    expect(structured.matches?.[0]?.code).toBe('363A00000X');
+    expect(text.indexOf('### Physician Assistant')).toBeLessThan(
+      text.indexOf('### Dental Assistant'),
+    );
+  });
+
+  it('resolve: "oncologist" leads with Medical Oncology on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'oncologist', limit: 1 });
+    expect(structured.matches?.map((m) => m.code)).toEqual(['207RX0202X']);
+    expect(structured.truncated).toBe(true);
+    expect(structured.notice).toMatch(/skip=1/);
+    expect(text).toContain('**Code:** 207RX0202X');
+  });
+
+  it('resolve: a single-entry alias match renders one entry and no truncation', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'neurosurgeon' });
+    expect(isError).toBe(false);
+    expect(structured.matches?.map((m) => m.code)).toEqual(['207T00000X']);
+    expect(structured).not.toHaveProperty('truncated');
+    expect(text).toMatch(/^### Neurological Surgery Physician\n/);
+  });
+
+  it('resolve: "primary care doctor" caps at limit, then pages on with skip', async () => {
+    const page1 = await run({ mode: 'resolve', query: 'primary care doctor', limit: 2 });
+    expect(page1.structured.matches?.map((m) => m.code)).toEqual(['207Q00000X', '207R00000X']);
+    expect(page1.structured).toMatchObject({ truncated: true, shown: 2, cap: 2 });
+    expect(page1.structured.notice).toMatch(/skip=2/);
+    expect(page1.text).toContain('### Family Medicine Physician');
+    const all = await run({ mode: 'resolve', query: 'primary care doctor', limit: 50 });
+    const page2 = await run({ mode: 'resolve', query: 'primary care doctor', limit: 2, skip: 2 });
+    expect(page2.structured.matches).toEqual(all.structured.matches?.slice(2, 4));
+  });
+
+  it('resolve: a skip past the end of an alias match set is an empty page', async () => {
+    const { isError, structured, text } = await run({
+      mode: 'resolve',
+      query: 'speech therapist',
+      skip: 5,
+    });
+    expect(isError).toBe(false);
+    expect(structured.matches).toEqual([]);
+    expect(structured.notice).toMatch(/No more matches beyond skip=5/);
+    expect(text).toContain('No taxonomy entries matched.');
+  });
+
+  it('resolve: "urologist" returns no Neurology entry, and a nonsense term still fails no_match', async () => {
+    const { structured } = await run({ mode: 'resolve', query: 'urologist', limit: 50 });
+    expect(structured.matches?.[0]?.code).toBe('208800000X');
+    expect(structured.matches?.filter((m) => /neurolog/i.test(String(m.classification)))).toEqual(
+      [],
+    );
+    const miss = await run({ mode: 'resolve', query: 'orthopedistzz' });
+    expect(miss.structured.error?.data?.reason).toBe('no_match');
+  });
+
+  it('resolve: rejects an out-of-range limit before resolving', () => {
+    expect(
+      lookupTaxonomyTool.input.safeParse({ mode: 'resolve', query: 'oncologist', limit: 0 })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('lookupTaxonomyTool resolve: therapist and pediatric ranking (#24, #25)', () => {
+  it('resolve: "therapist" returns therapist professions only, on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'therapist', limit: 50 });
+    const matches = structured.matches ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.filter((m) => m.grouping === 'Allopathic & Osteopathic Physicians')).toEqual([]);
+    expect(text).not.toContain('Therapeutic Radiology');
+    expect(text).not.toMatch(/^### .*Physician$/m);
+    expect(text).toMatch(/^### .*Therapist/m);
+  });
+
+  it('resolve: "sports medicine" leads with a non-pediatric code, on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'sports medicine', limit: 1 });
+    expect(structured.matches?.map((m) => m.code)).toEqual(['207QS0010X']);
+    expect(structured.truncated).toBe(true);
+    expect(text).toMatch(/^### Sports Medicine \(Family Medicine\) Physician\n/);
+  });
+
+  it('resolve: "pediatric sports medicine" still leads with the pediatric code', async () => {
+    const { structured, text } = await run({ mode: 'resolve', query: 'pediatric sports medicine' });
+    expect(structured.matches?.map((m) => m.code)).toEqual(['2080S0010X']);
+    expect(structured).not.toHaveProperty('truncated');
+    expect(text).toContain('**Code:** 2080S0010X');
+  });
+
+  it('resolve: the pediatric sleep medicine code sits on the last page, and skip past it is empty', async () => {
+    const page = await run({ mode: 'resolve', query: 'sleep medicine', limit: 2, skip: 4 });
+    expect(page.structured.matches?.map((m) => m.code)).toEqual(['2080S0012X']);
+    expect(page.structured).not.toHaveProperty('truncated');
+    const past = await run({ mode: 'resolve', query: 'sleep medicine', limit: 2, skip: 5 });
+    expect(past.structured.matches).toEqual([]);
+    expect(past.structured.notice).toMatch(/No more matches beyond skip=5/);
   });
 });

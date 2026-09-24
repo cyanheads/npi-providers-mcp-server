@@ -12,7 +12,7 @@ export const taxonomyResource = resource('npi://taxonomy/{code}', {
   name: 'npi-taxonomy',
   title: 'NUCC taxonomy entry',
   description:
-    'A single NUCC Healthcare Provider Taxonomy entry by code (grouping, classification, specialization, definition, display name, NPI section). The resource twin of npi_lookup_taxonomy mode "get". Fully offline.',
+    'A single NUCC Healthcare Provider Taxonomy entry by code (grouping, classification, specialization, definition, NUCC Notes, display name, NPI section, and status — active or inactive, with the replacement code NUCC names for an inactive one). Inactive codes remain readable here. The resource twin of npi_lookup_taxonomy mode "get". Fully offline.',
   mimeType: 'application/json',
   cacheHint: { ttlMs: 86_400_000, cacheScope: 'public' },
   params: z.object({

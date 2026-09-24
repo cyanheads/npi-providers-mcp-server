@@ -392,7 +392,7 @@ describe('public professional-data boundary', () => {
 });
 
 describe('taxonomy completeness and search pagination honesty', () => {
-  it.skip('returns NUCC Notes on exact tool and resource lookups (#11)', async () => {
+  it('returns NUCC Notes on exact tool and resource lookups (#11)', async () => {
     // https://github.com/cyanheads/npi-providers-mcp-server/issues/11
     const toolResult = await lookupTaxonomyTool.handler(
       lookupTaxonomyTool.input.parse({ mode: 'get', code: '242T00000X' }),
@@ -402,13 +402,14 @@ describe('taxonomy completeness and search pagination honesty', () => {
       taxonomyResource.params!.parse({ code: '242T00000X' }),
       createMockContext({ errors: taxonomyResource.errors }),
     );
+    // The NUCC cell has two spaces after "Source:"; the bundle keeps them.
     expect(toolResult.matches[0]).toHaveProperty(
       'notes',
-      'Source: Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]',
+      'Source:  Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]',
     );
     expect(resourceResult).toHaveProperty(
       'notes',
-      'Source: Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]',
+      'Source:  Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]',
     );
   });
 

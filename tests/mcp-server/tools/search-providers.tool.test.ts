@@ -10,7 +10,7 @@ import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mc
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { searchProvidersTool } from '@/mcp-server/tools/definitions/search-providers.tool.js';
 import { initNppesService } from '@/services/nppes/nppes-service.js';
-import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import { getTaxonomyService, initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 beforeAll(() => {
   initTaxonomyService();
@@ -134,6 +134,107 @@ describe('searchProvidersTool', () => {
     await expect(searchProvidersTool.handler(input, ctx())).rejects.toMatchObject({
       data: { reason: 'unresolved_specialty' },
     });
+  });
+
+  it('throws unresolved_specialty naming the inactive code before any upstream call (#16)', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const result = await runToolContract(searchProvidersTool, {
+      specialty: 'graphics designer',
+      city: 'Seattle',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    const error = (
+      result.structuredContent as { error: { message: string; data: { reason: string } } }
+    ).error;
+    expect(error.data.reason).toBe('unresolved_specialty');
+    expect(error.message).toContain('1744G0900X');
+    expect(error.message).toMatch(/inactive/i);
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain('1744G0900X');
+    expect(text).toMatch(/Recovery:/);
+  });
+
+  it('names the replacement when an inactive-only specialty has one (#16)', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const input = searchProvidersTool.input.parse({ specialty: 'christian science', limit: 10 });
+    const err = await Promise.resolve(searchProvidersTool.handler(input, ctx())).catch((e) => e);
+    expect(err?.data?.reason).toBe('unresolved_specialty');
+    expect(err?.message).toContain('287300000X');
+    expect(err?.message).toContain('282J00000X');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws unresolved_specialty for a specialty named like an Object.prototype key', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const result = await runToolContract(searchProvidersTool, { specialty: 'constructor' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const error = (
+      result.structuredContent as { error: { message: string; data: { reason: string } } }
+    ).error;
+    expect(error.data.reason).toBe('unresolved_specialty');
+    expect(error.message).toBe('Specialty "constructor" matched no NUCC taxonomy.');
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain('Specialty "constructor" matched no NUCC taxonomy.');
+  });
+
+  it('lists each inactive code, name, and replacement in the unresolved_specialty message (characterization)', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const result = await runToolContract(searchProvidersTool, { specialty: 'christian science' });
+    const message =
+      'Specialty "christian science" matched no active NUCC taxonomy. It matched only codes NUCC marks inactive: 287300000X Christian Science Sanitorium (replaced by 282J00000X); 317400000X Christian Science Facility (replaced by 282J00000X).';
+    expect((result.structuredContent as { error: { message: string } }).error.message).toBe(
+      message,
+    );
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain(message);
+    const none = await runToolContract(searchProvidersTool, { specialty: 'graphics designer' });
+    expect((none.structuredContent as { error: { message: string } }).error.message).toBe(
+      'Specialty "graphics designer" matched no active NUCC taxonomy. It matched only codes NUCC marks inactive: 1744G0900X Graphics Designer (no replacement named).',
+    );
+  });
+
+  it('never resolves a specialty to an inactive code (#16)', async () => {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const c = ctx();
+    // NUCC's top plain-text hit for "psychotherapy" is the inactive 103TP2700X.
+    const input = searchProvidersTool.input.parse({ specialty: 'psychotherapy', limit: 10 });
+    await searchProvidersTool.handler(input, c);
+    const enrich = enrichment(c);
+    const codes = enrich.resolvedTaxonomies?.map((t) => t.code) ?? [];
+    expect(codes.length).toBeGreaterThan(0);
+    expect(codes).not.toContain('103TP2700X');
+    expect(codes).not.toContain('103TW0100X');
+    for (const code of codes) {
+      expect(getTaxonomyService().get(code)?.status).toBe('active');
+    }
+    expect(enrich.appliedTaxonomyDescription).toBe(enrich.resolvedTaxonomies?.[0]?.description);
+    const calledUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(calledUrl.searchParams.get('taxonomy_description')).toBe(
+      enrich.appliedTaxonomyDescription,
+    );
+  });
+
+  it('still passes an inactive taxonomy_description through unchanged (#16, characterization)', async () => {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const input = searchProvidersTool.input.parse({
+      taxonomy_description: 'Graphics Designer',
+      limit: 10,
+    });
+    await searchProvidersTool.handler(input, ctx());
+    const calledUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(calledUrl.searchParams.get('taxonomy_description')).toBe('Graphics Designer');
   });
 
   it('passes a raw taxonomy_description through unresolved', async () => {
@@ -694,5 +795,86 @@ describe('searchProvidersTool location matching across practice locations (#18)'
       .join('\n');
     expect(text).toContain('**Location:** SAINT LOUIS, MO');
     expect(text).toContain('**Matched practice location:** SEATTLE, WA');
+  });
+});
+
+// ── #10/#20/#21/#22: specialty resolution sends the representative description ──
+
+describe('searchProvidersTool specialty resolution (#10, #20, #21, #22)', () => {
+  /** Answer every registry request with an empty page; capture the outgoing URLs. */
+  function stubEmptyRegistry(): ReturnType<typeof vi.fn> {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  }
+
+  it.each([
+    ['oncologist', '207RX0202X', 'Medical Oncology'],
+    ['dentist', '122300000X', 'Dentist'],
+    ['physician assistant', '363A00000X', 'Physician Assistant'],
+    ['orthopedist', '207X00000X', 'Orthopaedic Surgery'],
+    ['neurosurgeon', '207T00000X', 'Neurological Surgery'],
+  ])('"%s" applies %s (%s) and sends it upstream', async (specialty, code, description) => {
+    const fetchSpy = stubEmptyRegistry();
+    const result = await runToolContract(searchProvidersTool, { specialty, city: 'Seattle' });
+    const structured = result.structuredContent as SearchEnrichment;
+    expect(structured.resolvedTaxonomies?.[0]).toEqual({ code, description });
+    expect(structured.appliedTaxonomyDescription).toBe(description);
+    const calledUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(calledUrl.searchParams.get('taxonomy_description')).toBe(description);
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain(`**Resolved specialty →** ${description} (${code})`);
+  });
+});
+
+describe('searchProvidersTool specialty resolution (#24, #25)', () => {
+  function stubEmptyRegistry(): ReturnType<typeof vi.fn> {
+    const fetchSpy = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(JSON.stringify({ result_count: 0, results: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  }
+
+  it('"therapist" never sends a physician description upstream', async () => {
+    const fetchSpy = stubEmptyRegistry();
+    const result = await runToolContract(searchProvidersTool, { specialty: 'therapist' });
+    const structured = result.structuredContent as SearchEnrichment;
+    expect(structured.appliedTaxonomyDescription).not.toBe('Therapeutic Radiology');
+    expect(structured.appliedTaxonomyDescription).toMatch(/therapist/i);
+    for (const candidate of structured.resolvedTaxonomies ?? []) {
+      expect(getTaxonomyService().get(candidate.code)?.grouping).not.toBe(
+        'Allopathic & Osteopathic Physicians',
+      );
+    }
+    const calledUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(calledUrl.searchParams.get('taxonomy_description')).toBe(
+      structured.appliedTaxonomyDescription,
+    );
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).not.toContain('Therapeutic Radiology');
+  });
+
+  it('"sports medicine" lists the Family Medicine code first', async () => {
+    stubEmptyRegistry();
+    const result = await runToolContract(searchProvidersTool, { specialty: 'sports medicine' });
+    const structured = result.structuredContent as SearchEnrichment;
+    expect(structured.resolvedTaxonomies?.[0]).toEqual({
+      code: '207QS0010X',
+      description: 'Sports Medicine',
+    });
+    expect(structured.resolvedTaxonomies?.map((t) => t.code)).not.toContain('2080S0010X');
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain('**Resolved specialty →** Sports Medicine (207QS0010X)');
   });
 });

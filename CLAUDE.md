@@ -13,7 +13,7 @@
 
 ## Overview
 
-US healthcare provider directory over the live, **keyless** NPPES NPI Registry API (v2.1), plus a **bundled NUCC Healthcare Provider Taxonomy** code set (879 codes, v25.0) for offline specialty resolution. Three tools, two resources, no prompts:
+US healthcare provider directory over the live, **keyless** NPPES NPI Registry API (v2.1), plus a **bundled NUCC Healthcare Provider Taxonomy** code set (883 codes, v26.1) for offline specialty resolution. Three tools, two resources, no prompts:
 
 - `npi_search_providers` — search by name, organization, location, provider type, and specialty; plain-language specialties resolve through the bundled taxonomy before searching.
 - `npi_get_provider` — decode up to 10 NPIs to their professional-practice records (only LOCATION address rows are kept for individual providers), checking each NPI's check digit and fanning out one call per valid NPI with partial-success reporting.
@@ -234,9 +234,9 @@ src/
       types.ts                                # NPPES domain + raw types
     taxonomy/
       taxonomy-service.ts                     # In-memory NUCC index — resolve / get / browse
-      taxonomy-data.ts                         # Generated bundled NUCC index (879 codes)
-      types.ts                                # TaxonomyEntry / TaxonomySection
-      data/nucc_taxonomy_250.csv              # Source CSV (v25.0); regenerate taxonomy-data.ts from it
+      taxonomy-data.ts                         # Generated bundled NUCC index (883 codes)
+      types.ts                                # TaxonomyEntry / TaxonomySection / TaxonomyStatus
+      data/nucc_taxonomy_261.csv              # Source CSV (v26.1); regenerate taxonomy-data.ts from it
   mcp-server/
     npi-check-digit.ts                        # NPI check digit (Luhn over 80840 + NPI) — shared by the NPI tool and resource
     tools/definitions/
@@ -248,7 +248,7 @@ src/
       taxonomy.resource.ts                    # npi://taxonomy/{code}
 ```
 
-No `prompts/` — this server defines no prompts. The bundled NUCC index in `taxonomy-data.ts` is generated from `data/nucc_taxonomy_250.csv` by `scripts/generate-taxonomy-data.ts`; refresh on NUCC's twice-yearly release by dropping the new CSV, bumping `CSV_VERSION`, and re-running it.
+No `prompts/` — this server defines no prompts. The bundled NUCC index in `taxonomy-data.ts` is generated from `data/nucc_taxonomy_261.csv` by `scripts/generate-taxonomy-data.ts`, which parses the CSV through `scripts/nucc-taxonomy-csv.ts`: every column is kept, and each entry's `status` (`inactive` when its Notes say `marked inactive`) and `replacedBy` are derived there, failing the build when a named replacement is missing or inactive. Refresh on NUCC's twice-yearly release by replacing the CSV, bumping `CSV_VERSION`, and re-running it. `resolve` never returns inactive codes; `get`, `browse`, and the resource do.
 
 ---
 

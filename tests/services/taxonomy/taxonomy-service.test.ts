@@ -5,13 +5,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
+import { PREFERRED_ENTRIES, TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 const svc = new TaxonomyService();
 
 describe('TaxonomyService', () => {
   it('loads the full bundled code set', () => {
-    expect(svc.size).toBe(879);
+    expect(svc.size).toBe(883);
   });
 
   describe('resolve', () => {
@@ -107,13 +108,27 @@ describe('TaxonomyService', () => {
       expect(hits.some((entry) => entry.code === '207Q00000X')).toBe(true);
     });
 
-    it.skip('excludes inactive taxonomy codes from plain-language resolution (#16)', () => {
+    it('keeps the ranked order of the leading psychologist entries (characterization)', () => {
+      expect(svc.resolve('psychologist', 8).map((entry) => entry.code)).toEqual([
+        '103T00000X',
+        '103G00000X',
+        '103TF0000X',
+        '103TH0004X',
+        '103TS0200X',
+        '103TC0700X',
+        '103TF0200X',
+        '103TC1900X',
+      ]);
+      expect(svc.resolve('clinical neuropsychologist', 20)[0]?.code).toBe('103G00000X');
+    });
+
+    it('excludes inactive taxonomy codes from plain-language resolution (#16)', () => {
       // https://github.com/cyanheads/npi-providers-mcp-server/issues/16
       const hits = svc.resolve('graphics designer', 20);
       expect(hits.map((entry) => entry.code)).not.toContain('1744G0900X');
     });
 
-    it.skip('ranks representative general specialties above narrow variants (#10)', () => {
+    it('ranks representative general specialties above narrow variants (#10)', () => {
       // https://github.com/cyanheads/npi-providers-mcp-server/issues/10
       expect(svc.resolve('oncologist', 1)[0]?.code).toBe('207RX0202X');
       expect(svc.resolve('endocrinologist', 1)[0]?.code).toBe('207RE0101X');
@@ -158,6 +173,363 @@ describe('TaxonomyService', () => {
     });
   });
 
+  describe('resolve — behavior the matching changes must keep (characterization)', () => {
+    it.each([
+      ['dermatologist', '207N00000X'],
+      ['pediatrician', '208000000X'],
+      ['psychiatrist', '2084P0800X'],
+      ['nurse practitioner', '363L00000X'],
+      ['chiropractor', '111N00000X'],
+      ['podiatrist', '213E00000X'],
+      ['optometrist', '152W00000X'],
+      ['orthodontist', '1223X0400X'],
+      ['physical therapist', '225100000X'],
+      ['social worker', '104100000X'],
+      ['midwife', '176B00000X'],
+      ['gastroenterologist', '207RG0100X'],
+      ['rheumatologist', '207RR0500X'],
+      ['nephrologist', '207RN0300X'],
+      ['anesthesiologist', '207L00000X'],
+      ['ophthalmologist', '207W00000X'],
+      ['otolaryngologist', '207Y00000X'],
+      ['allergist', '207KA0200X'],
+      ['plastic surgeon', '208200000X'],
+      ['urologist', '208800000X'],
+      ['emergency physician', '207P00000X'],
+      ['family doctor', '207Q00000X'],
+      ['internist', '207R00000X'],
+      ['obstetrician', '207V00000X'],
+      ['gynecologist', '207V00000X'],
+      ['dietitian', '133V00000X'],
+      ['audiologist', '231H00000X'],
+    ])('"%s" keeps %s as its top hit', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it('keeps specialties whose NUCC name is a compound of the queried term', () => {
+      // A neuroradiologist is a radiologist, a cytopathologist a pathologist: these words
+      // join a combining form to the specialty, so the term still matches mid-word.
+      const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+      expect(codes('radiologist')).toContain('2085N0700X'); // Neuroradiology
+      expect(codes('pathologist')).toEqual(
+        expect.arrayContaining([
+          '207ZC0500X', // Cytopathology
+          '207ZD0900X', // Dermatopathology (Pathology)
+          '207ND0900X', // Dermatopathology (Dermatology)
+          '207ZI0100X', // Immunopathology
+          '207ZN0500X', // Neuropathology
+        ]),
+      );
+      expect(codes('psychologist')).toContain('103G00000X'); // Clinical Neuropsychologist
+      expect(codes('gynecologist')).toEqual(expect.arrayContaining(['207VF0040X', '2088F0040X']));
+      expect(codes('physiology')).toEqual(
+        expect.arrayContaining(['2084N0600X', '207RC0001X', '2251E1300X']),
+      );
+      expect(codes('therapy')).toContain('103TP2701X'); // Group Psychotherapy
+      expect(codes('genetic')).toContain('207SC0300X'); // Clinical Cytogenetics
+      expect(codes('musculoskeletal')).toContain('204D00000X'); // Neuromusculoskeletal Medicine
+      expect(codes('facial')).toContain('1223S0112X'); // Oral and Maxillofacial Surgery
+      expect(codes('vascular')).toContain('207RC0000X'); // Cardiovascular Disease
+    });
+
+    it('keeps the physician grouping first for "sports physician"', () => {
+      const top = svc.resolve('sports physician', 1)[0];
+      expect(top?.grouping).toBe('Allopathic & Osteopathic Physicians');
+      expect(top?.code).not.toBe('111NS0005X'); // Sports Physician Chiropractor
+    });
+  });
+
+  describe('resolve — lookup-table keys', () => {
+    it('treats a term named like an Object.prototype key as an ordinary unmatched term', () => {
+      expect(svc.resolve('constructor', 20)).toEqual([]);
+      expect(svc.resolve('constructor doctor', 20)).toEqual([]);
+      expect(svc.resolveWithInactive('constructor', 20)).toEqual({
+        matches: [],
+        inactiveMatches: [],
+      });
+    });
+  });
+
+  describe('resolve — tokens match at word starts (#20)', () => {
+    const text = (e: { classification: string; specialization?: string; displayName: string }) =>
+      `${e.classification} ${e.specialization ?? ''} ${e.displayName}`;
+
+    it('resolves "dentist" to Dentist, not a word that merely contains "dent"', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/20
+      const hits = svc.resolve('dentist', 1000);
+      expect(hits[0]?.code).toBe('122300000X');
+      expect(hits.map((e) => e.code)).not.toContain('202C00000X'); // Independent Medical Examiner
+      expect(hits.filter((e) => /independent|student|residential/i.test(text(e)))).toEqual([]);
+    });
+
+    it('keeps the Otolaryngology compounds for "laryngologist"', () => {
+      // Oto·laryngology and Oto·rhino·laryngology join combining forms to "laryngology".
+      const hits = svc.resolve('laryngologist', 1000).map((e) => e.code);
+      expect(hits[0]).toBe('207Y00000X');
+      expect([...hits].sort()).toEqual(
+        [
+          '207Y00000X',
+          '207YX0905X',
+          '207YP0228X',
+          '207YX0901X',
+          '207YX0602X',
+          '207YS0012X',
+          '207YS0123X',
+          '207YX0007X',
+          '163WX0601X', // Otorhinolaryngology & Head-Neck Registered Nurse
+        ].sort(),
+      );
+    });
+
+    it('resolves "urologist" to Urology with no Neurology entry', () => {
+      const hits = svc.resolve('urologist', 1000);
+      expect(hits[0]?.code).toBe('208800000X');
+      expect(hits.filter((e) => /neurolog/i.test(text(e))).map((e) => e.code)).toEqual([]);
+    });
+  });
+
+  describe('resolve — a stop word that names the specialty (#21)', () => {
+    it('resolves "physician assistant" to Physician Assistant first', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/21
+      expect(svc.resolve('physician assistant', 1)[0]?.code).toBe('363A00000X');
+    });
+
+    it('reorders only: the match set is the one the query has without the stop word', () => {
+      const codes = (query: string) =>
+        svc
+          .resolve(query, 1000)
+          .map((e) => e.code)
+          .sort();
+      expect(codes('physician assistant')).toEqual(codes('assistant'));
+      expect(codes('nurse specialist')).toEqual(codes('nurse'));
+    });
+
+    it('ranks the entry named with "specialist" first among non-physician matches', () => {
+      expect(svc.resolve('nurse specialist', 1)[0]?.code).toBe('364S00000X');
+    });
+  });
+
+  describe('resolve — terms NUCC spells or names differently (#22)', () => {
+    it.each([
+      ['orthopedist', '207X00000X'],
+      ['orthopedic', '207X00000X'],
+      ['orthopedic surgeon', '207X00000X'],
+      ['neurosurgeon', '207T00000X'],
+      ['cardiac surgeon', '208G00000X'],
+      ['speech therapist', '235Z00000X'],
+    ])('"%s" resolves to active %s first', (query, code) => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/22
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+      expect(svc.get(code)?.status).toBe('active');
+    });
+
+    it('resolves "primary care doctor" to Family Medicine, then Internal Medicine', () => {
+      expect(
+        svc
+          .resolve('primary care doctor', 2)
+          .map((e) => e.code)
+          .sort(),
+      ).toEqual(['207Q00000X', '207R00000X']);
+      expect(svc.resolve('primary care physician', 2).map((e) => e.code)).toEqual([
+        '207Q00000X',
+        '207R00000X',
+      ]);
+    });
+
+    it('keeps the entries those terms matched by their own spelling', () => {
+      const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+      expect(codes('orthopedist')).toEqual(
+        expect.arrayContaining(['111NX0800X', '2251X0800X', '163WX0800X', '1223X0400X']),
+      );
+      expect(codes('primary care doctor')).toEqual(
+        expect.arrayContaining(['261QP2300X', '363LP2300X']),
+      );
+    });
+
+    it('leaves a bare term that shares a word with an alias phrase unchanged', () => {
+      expect(svc.resolve('speech', 1000).map((e) => e.code)).not.toContain('208G00000X');
+      expect(svc.resolve('therapist', 1000).map((e) => e.code)).not.toContain('235Z00000X');
+    });
+  });
+
+  describe('resolve — preferred general entry for a bare specialist term (#10)', () => {
+    const TABLE: readonly (readonly [string, string])[] = [
+      ['oncologist', '207RX0202X'],
+      ['oncology', '207RX0202X'],
+      ['cancer doctor', '207RX0202X'],
+      ['endocrinologist', '207RE0101X'],
+      ['hematologist', '207RH0000X'],
+      ['radiologist', '2085R0202X'],
+      ['radiology', '2085R0202X'],
+      ['pathologist', '207ZP0102X'],
+      ['pathology', '207ZP0102X'],
+      ['geriatrician', '207RG0300X'],
+      ['pharmacist', '183500000X'],
+    ];
+
+    it.each(TABLE)('"%s" resolves to %s first', (query, code) => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/10
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it('moves only the preferred entry: the match set and the rest of the order stay put', () => {
+      // A repeated token matches exactly what the single token matches but is multi-token,
+      // so it bypasses the table: its order is the ranking without the preferred entry.
+      for (const [query, code] of TABLE) {
+        const token = query.replace(/ doctor$/, '');
+        const ranked = svc.resolve(query, 1000).map((e) => e.code);
+        const unpreferred = svc.resolve(`${token} ${token}`, 1000).map((e) => e.code);
+        expect([...ranked].sort()).toEqual([...unpreferred].sort());
+        expect(ranked).toEqual([code, ...unpreferred.filter((c) => c !== code)]);
+      }
+    });
+
+    it.each([
+      ['surgical oncologist', '2086X0206X'],
+      ['radiation oncologist', '2085R0001X'],
+      ['pediatric endocrinologist', '2080P0205X'],
+      ['reproductive endocrinologist', '207VE0102X'],
+      ['clinical pharmacologist', '208U00000X'],
+      ['forensic pathologist', '207ZF0201X'],
+    ])('multi-token "%s" bypasses the table and keeps %s first', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it('every preferred code is bundled and active', () => {
+      const entries = Object.entries(PREFERRED_ENTRIES);
+      expect(entries.length).toBeGreaterThanOrEqual(8);
+      for (const [, code] of entries) {
+        expect(svc.get(code)?.status).toBe('active');
+      }
+    });
+  });
+
+  describe('resolve — a bare "therapist" names the profession (#24)', () => {
+    const text = (e: { classification: string; specialization?: string; displayName: string }) =>
+      `${e.classification} ${e.specialization ?? ''} ${e.displayName}`;
+
+    it('returns no physician-grouping code for "therapist"', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/24
+      const hits = svc.resolve('therapist', 50);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(
+        hits.filter((e) => e.grouping === 'Allopathic & Osteopathic Physicians').map((e) => e.code),
+      ).toEqual([]);
+    });
+
+    it('matches only therapist professions, never a therapy or therapeutic label alone', () => {
+      const hits = svc.resolve('therapist', 1000);
+      expect(hits.filter((e) => !/therapist/i.test(text(e))).map((e) => e.code)).toEqual([]);
+      expect(hits[0]?.displayName).toMatch(/therapist/i);
+    });
+
+    it.each([
+      ['occupational therapist', '225X00000X'],
+      ['respiratory therapist', '227800000X'],
+      ['physical therapist', '225100000X'],
+      ['speech therapist', '235Z00000X'],
+      ['massage therapist', '225700000X'],
+      ['radiation therapist', '2471R0002X'],
+      ['psychotherapist', '103TP2701X'],
+      ['kinesiotherapist', '226300000X'],
+    ])('"%s" keeps %s as its top hit (characterization)', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it('a qualified therapist query still reaches the matching therapy entries (characterization)', () => {
+      const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+      expect(codes('occupational therapist')).toContain('224Z00000X'); // Occupational Therapy Assistant
+      expect(codes('physical therapist')).toEqual(
+        expect.arrayContaining(['225200000X', '261QP2000X']), // PT Assistant, PT Clinic
+      );
+      expect(codes('occupational therapist')).toHaveLength(18);
+      expect(codes('physical therapist')).toHaveLength(14);
+    });
+  });
+
+  describe('resolve — pediatric variants rank after the general specialty (#25)', () => {
+    const SPORTS = [
+      '207QS0010X',
+      '207RS0010X',
+      '207PS0010X',
+      '2084S0010X',
+      '207XX0005X',
+      '2083S0010X',
+      '204C00000X',
+      '2081S0010X',
+    ];
+    const SLEEP = ['207YS0012X', '207QS1201X', '207RS0012X', '2084S0012X'];
+
+    it('keeps the sports and sleep medicine match sets (characterization)', () => {
+      const sorted = (query: string) =>
+        svc
+          .resolve(query, 1000)
+          .map((e) => e.code)
+          .sort();
+      expect(sorted('sports medicine')).toEqual([...SPORTS, '2080S0010X', '213ES0000X'].sort());
+      expect(sorted('sleep medicine')).toEqual([...SLEEP, '2080S0012X'].sort());
+    });
+
+    it('leads with a non-pediatric code for sports medicine, sports physician, and sleep medicine', () => {
+      // https://github.com/cyanheads/npi-providers-mcp-server/issues/25
+      for (const query of ['sports medicine', 'sports physician', 'sleep medicine']) {
+        expect(svc.resolve(query, 1)[0]?.code).not.toMatch(/^2080/);
+      }
+    });
+
+    it('moves only the pediatric entry, to the end of its physician tier', () => {
+      expect(svc.resolve('sports medicine', 1000).map((e) => e.code)).toEqual([
+        ...SPORTS,
+        '2080S0010X',
+        '213ES0000X',
+      ]);
+      expect(svc.resolve('sleep medicine', 1000).map((e) => e.code)).toEqual([
+        ...SLEEP,
+        '2080S0012X',
+      ]);
+    });
+
+    it('still leads with the pediatric code when the query names pediatrics (characterization)', () => {
+      expect(svc.resolve('pediatric sports medicine', 1)[0]?.code).toBe('2080S0010X');
+      expect(svc.resolve('pediatric sleep medicine', 1)[0]?.code).toBe('2080S0012X');
+      expect(svc.resolve('pediatrician', 1)[0]?.code).toBe('208000000X');
+    });
+  });
+
+  describe('resolve — paging stays contiguous under the #24/#25 changes (#7)', () => {
+    it.each(['therapist', 'sports physician'])(
+      'a skip-walk of "%s" reaches every match exactly once, in rank order',
+      (query) => {
+        const all = svc.resolve(query, 1000).map((e) => e.code);
+        expect(all[0]).not.toBe(query === 'therapist' ? '2085R0203X' : '2080S0010X');
+        const walked: string[] = [];
+        for (let skip = 0; skip < all.length; skip += 4) {
+          walked.push(...svc.resolve(query, 4, skip).map((e) => e.code));
+        }
+        expect(walked).toEqual(all);
+        expect(new Set(walked).size).toBe(walked.length);
+      },
+    );
+  });
+
+  describe('resolve — paging stays contiguous under the new ranking signals (#7)', () => {
+    it.each(['oncologist', 'physician assistant', 'primary care doctor', 'dentist'])(
+      'a skip-walk of "%s" reaches every match exactly once, in rank order',
+      (query) => {
+        const all = svc.resolve(query, 1000).map((e) => e.code);
+        expect(all.length).toBeGreaterThan(3);
+        const walked: string[] = [];
+        for (let skip = 0; skip < all.length; skip += 3) {
+          const page = svc.resolve(query, 3, skip).map((e) => e.code);
+          expect(page.length).toBe(Math.min(3, all.length - skip));
+          walked.push(...page);
+        }
+        expect(walked).toEqual(all);
+        expect(svc.resolve(query, 3, all.length)).toEqual([]);
+      },
+    );
+  });
+
   describe('pagination via skip (#7)', () => {
     it('browse: skip returns the next contiguous page with no overlap or gap', () => {
       const all = svc.browse({ limit: 1000 });
@@ -189,6 +561,17 @@ describe('TaxonomyService', () => {
       expect(page1.map((h) => h.code)).toEqual(all.slice(0, 3).map((h) => h.code));
       expect(page2.map((h) => h.code)).toEqual(all.slice(3, 6).map((h) => h.code));
       expect(page1.some((h) => page2.some((p) => p.code === h.code))).toBe(false);
+    });
+
+    it('browse: an unfiltered skip-walk reaches every bundled code exactly once (characterization)', () => {
+      const walked: string[] = [];
+      for (let skip = 0; ; skip += 50) {
+        const page = svc.browse({ limit: 50, skip }).map((h) => h.code);
+        if (page.length === 0) break;
+        walked.push(...page);
+      }
+      expect(walked).toHaveLength(svc.size);
+      expect(new Set(walked).size).toBe(svc.size);
     });
 
     it('resolve/browse: skip past the end returns an empty page (no throw)', () => {
@@ -243,6 +626,143 @@ describe('TaxonomyService', () => {
       const groupings = svc.listGroupings();
       expect(groupings.length).toBeGreaterThan(5);
       expect([...groupings]).toEqual([...groupings].sort());
+    });
+  });
+
+  describe('NUCC Notes (#11)', () => {
+    it('get returns the trimmed Notes cell, interior whitespace intact', () => {
+      expect(svc.get('242T00000X')?.notes).toBe(
+        'Source:  Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]',
+      );
+    });
+
+    it('carries Notes only for codes whose cell is non-empty', () => {
+      expect(svc.get('207QA0505X')).toBeDefined();
+      expect(svc.get('207QA0505X')).not.toHaveProperty('notes');
+      const withNotes = TAXONOMY_ENTRIES.filter((e) => e.notes !== undefined);
+      expect(withNotes.length).toBeGreaterThan(0);
+      expect(withNotes.every((e) => e.notes === e.notes?.trim() && e.notes !== '')).toBe(true);
+    });
+  });
+
+  describe('inactive codes (#16)', () => {
+    const inactive = TAXONOMY_ENTRIES.filter((entry) => entry.status === 'inactive');
+    const activeOnly = new TaxonomyService(
+      TAXONOMY_ENTRIES.filter((entry) => entry.status === 'active'),
+    );
+
+    it('bundles every NUCC code marked inactive, flagged', () => {
+      expect(inactive).toHaveLength(28);
+      expect(TAXONOMY_ENTRIES.every((e) => e.status === 'active' || e.status === 'inactive')).toBe(
+        true,
+      );
+    });
+
+    it('get keeps inactive codes, with the replacement NUCC names', () => {
+      expect(svc.get('103GC0700X')).toMatchObject({
+        status: 'inactive',
+        replacedBy: '103G00000X',
+      });
+      expect(svc.get('1744G0900X')).toMatchObject({ status: 'inactive' });
+      expect(svc.get('1744G0900X')).not.toHaveProperty('replacedBy');
+      expect(svc.get('207RC0000X')).toMatchObject({ status: 'active' });
+    });
+
+    it('names exactly the five replacements NUCC records, each an active code', () => {
+      const replacements = Object.fromEntries(
+        inactive.filter((e) => e.replacedBy).map((e) => [e.code, e.replacedBy]),
+      );
+      expect(replacements).toEqual({
+        '103GC0700X': '103G00000X',
+        '1835G0000X': '183500000X',
+        '213EG0000X': '213E00000X',
+        '287300000X': '282J00000X',
+        '317400000X': '282J00000X',
+      });
+      for (const target of Object.values(replacements)) {
+        expect(svc.get(target as string)?.status).toBe('active');
+      }
+      expect(TAXONOMY_ENTRIES.some((e) => e.status === 'active' && e.replacedBy)).toBe(false);
+    });
+
+    it('keeps every #10 preferred general-specialty code active', () => {
+      for (const code of [
+        '207RX0202X',
+        '207RE0101X',
+        '207RH0000X',
+        '2085R0202X',
+        '207ZP0102X',
+        '207RG0300X',
+        '183500000X',
+      ]) {
+        expect(svc.get(code)?.status).toBe('active');
+      }
+    });
+
+    it('resolve drops the inactive twin of an active code', () => {
+      expect(svc.resolve('clinical neuropsychologist', 20).map((e) => e.code)).toEqual([
+        '103G00000X',
+      ]);
+    });
+
+    it('no resolve result carries an inactive code, whatever the query names', () => {
+      expect(inactive.length).toBeGreaterThan(0);
+      for (const entry of inactive) {
+        for (const query of [entry.displayName, entry.specialization ?? entry.classification]) {
+          const hits = svc.resolve(query, 1000);
+          expect(hits.filter((h) => h.status !== 'active').map((h) => h.code)).toEqual([]);
+        }
+      }
+    });
+
+    it('filters before ranking: the active ranking matches an index built without inactive codes', () => {
+      for (const query of [
+        'psychologist',
+        'podiatrist',
+        'psychotherapy',
+        'technologist',
+        'pharmacist',
+      ]) {
+        const hits = svc.resolve(query, 1000);
+        expect(hits.length).toBeGreaterThan(0);
+        expect(hits.map((e) => e.code)).toEqual(activeOnly.resolve(query, 1000).map((e) => e.code));
+      }
+    });
+
+    it('filters before the skip/limit slice, so pages stay contiguous and full (#7)', () => {
+      const all = svc.resolve('psychologist', 1000);
+      const walked: string[] = [];
+      for (let skip = 0; skip < all.length; skip += 3) {
+        const page = svc.resolve('psychologist', 3, skip);
+        expect(page.length).toBe(Math.min(3, all.length - skip));
+        walked.push(...page.map((e) => e.code));
+      }
+      expect(walked).toEqual(all.map((e) => e.code));
+      expect(walked).not.toContain('103TE1000X');
+    });
+
+    it('reports the inactive entries a query matched alongside the active page', () => {
+      const onlyInactive = svc.resolveWithInactive('graphics designer', 20);
+      expect(onlyInactive.matches).toEqual([]);
+      expect(onlyInactive.inactiveMatches.map((e) => e.code)).toEqual(['1744G0900X']);
+
+      const mixed = svc.resolveWithInactive('clinical neuropsychologist', 20);
+      expect(mixed.matches.map((e) => e.code)).toEqual(['103G00000X']);
+      expect(mixed.inactiveMatches.map((e) => [e.code, e.replacedBy])).toEqual([
+        ['103GC0700X', '103G00000X'],
+      ]);
+
+      const none = svc.resolveWithInactive('zzzznotaspecialty', 20);
+      expect(none).toEqual({ matches: [], inactiveMatches: [] });
+    });
+
+    it('browse keeps inactive codes in code order, flagged', () => {
+      const page = svc.browse({ limit: 20 });
+      expect(page.find((e) => e.code === '103GC0700X')).toMatchObject({
+        status: 'inactive',
+        replacedBy: '103G00000X',
+      });
+      expect(page.find((e) => e.code === '103TE1000X')).toMatchObject({ status: 'inactive' });
     });
   });
 });

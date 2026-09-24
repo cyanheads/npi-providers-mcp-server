@@ -6,7 +6,10 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { getTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import {
+  describeInactiveEntries,
+  getTaxonomyService,
+} from '@/services/taxonomy/taxonomy-service.js';
 import type { TaxonomyEntry } from '@/services/taxonomy/types.js';
 
 const EntrySchema = z
@@ -31,13 +34,28 @@ const EntrySchema = z
       .string()
       .optional()
       .describe('Scope note / definition. Absent for a handful of codes.'),
+    notes: z
+      .string()
+      .optional()
+      .describe(
+        'NUCC Notes: sources, revision history, and status remarks. Returned by mode "get" only, when NUCC records a note.',
+      ),
     section: z
       .enum(['Individual', 'Non-Individual'])
       .describe('NPI enumeration scope: Individual (NPI-1) or Non-Individual (NPI-2).'),
+    status: z
+      .enum(['active', 'inactive'])
+      .describe(
+        'NUCC status. Inactive codes are no longer maintained: mode "resolve" excludes them, while "get" and "browse" return them.',
+      ),
+    replacedBy: z
+      .string()
+      .optional()
+      .describe('For an inactive code, the active replacement code NUCC names, when it names one.'),
   })
   .describe('A single NUCC taxonomy entry.');
 
-/** Map a domain entry to the output shape, omitting absent optional fields. */
+/** Map a domain entry to the list-mode output shape (no notes), omitting absent optional fields. */
 function toEntry(e: TaxonomyEntry): z.infer<typeof EntrySchema> {
   return {
     code: e.code,
@@ -47,22 +65,25 @@ function toEntry(e: TaxonomyEntry): z.infer<typeof EntrySchema> {
     displayName: e.displayName,
     ...(e.definition ? { definition: e.definition } : {}),
     section: e.section,
+    status: e.status,
+    ...(e.replacedBy ? { replacedBy: e.replacedBy } : {}),
   };
 }
 
 function renderEntry(e: z.infer<typeof EntrySchema>): string {
   const lines = [
     `### ${e.displayName}`,
-    `**Code:** ${e.code} | **Section:** ${e.section} (${e.section === 'Individual' ? 'NPI-1' : 'NPI-2'})`,
+    `**Code:** ${e.code} | **Section:** ${e.section} (${e.section === 'Individual' ? 'NPI-1' : 'NPI-2'}) | **Status:** ${e.status}${e.replacedBy ? ` (replaced by ${e.replacedBy})` : ''}`,
     `**Hierarchy:** ${e.grouping} › ${e.classification}${e.specialization ? ` › ${e.specialization}` : ''}`,
   ];
   if (e.definition) lines.push(e.definition);
+  if (e.notes) lines.push(`**Notes:** ${e.notes}`);
   return lines.join('\n');
 }
 
 export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
   description:
-    'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching taxonomy entries; mode `get` returns the full entry for an exact code; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2). A resolved entry\'s specialization, or its classification when specialization is absent, maps directly to npi_search_providers.taxonomy_description.',
+    'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching active taxonomy entries, excluding codes NUCC marks inactive; mode `get` returns the full entry for an exact code, including NUCC\'s Notes; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2). Every entry carries its status, and an inactive code names its replacement when NUCC gives one; `get` and `browse` still return inactive codes. A resolved entry\'s specialization, or its classification when specialization is absent, maps directly to npi_search_providers.taxonomy_description.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   input: z.discriminatedUnion('mode', [
@@ -151,7 +172,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     {
       reason: 'no_match',
       code: JsonRpcErrorCode.NotFound,
-      when: 'A resolve query or get code matched no taxonomy entry.',
+      when: 'A get code matched no taxonomy entry, or a resolve query matched no active one (the message names any inactive codes it matched).',
       recovery: 'Try a broader term, or use mode browse to walk groupings then classifications.',
     },
     {
@@ -178,7 +199,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
           ...ctx.recoveryFor('no_match'),
         });
       }
-      return { matches: [toEntry(entry)] };
+      return { matches: [{ ...toEntry(entry), ...(entry.notes ? { notes: entry.notes } : {}) }] };
     }
 
     if (input.mode === 'resolve') {
@@ -189,7 +210,11 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
         });
       }
       // Fetch one past the cap to detect truncation honestly.
-      const hits = taxonomy.resolve(query, input.limit + 1, input.skip);
+      const { matches: hits, inactiveMatches } = taxonomy.resolveWithInactive(
+        query,
+        input.limit + 1,
+        input.skip,
+      );
       if (hits.length === 0) {
         // A skip past the end of a real match set is an empty page, not a no-match.
         if (input.skip > 0) {
@@ -197,6 +222,18 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
             `No more matches beyond skip=${input.skip}. Lower skip, or omit it to page from the start.`,
           );
           return { matches: [] };
+        }
+        const inactive = describeInactiveEntries(inactiveMatches);
+        if (inactive) {
+          throw ctx.fail(
+            'no_match',
+            `No active taxonomy matched "${query}". It matched only codes NUCC marks inactive: ${inactive}.`,
+            {
+              recovery: {
+                hint: 'Resolve excludes inactive codes. Use a named replacement code with mode get, read an inactive entry with mode get, or try a broader term.',
+              },
+            },
+          );
         }
         throw ctx.fail('no_match', `No taxonomy matched "${query}".`, {
           ...ctx.recoveryFor('no_match'),

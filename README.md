@@ -53,7 +53,7 @@ All resource data is also reachable via tools; the resources are convenience twi
 ### `npi_search_providers` <sub>tool</sub>
 
 - Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`); at least one criterion is required and the registry rejects state-only searches
-- Plain-language `specialty` resolves through the bundled NUCC taxonomy to the registry's exact description before searching, echoed back via `resolvedTaxonomies` / `appliedTaxonomyDescription`; `taxonomy_description` is an escape hatch for an already-known exact description (mutually exclusive with `specialty`)
+- Plain-language `specialty` resolves through the bundled NUCC taxonomy to the registry's exact description before searching, echoed back via `resolvedTaxonomies` / `appliedTaxonomyDescription`; inactive NUCC codes are never resolved. `taxonomy_description` is an escape hatch for an already-known exact description (mutually exclusive with `specialty`)
 - Trailing-wildcard (`*`) name/organization matching requires at least 2 leading characters
 - Each row's `city` / `state` / `postalCode` is the primary practice location. A location search matches practice addresses only, never mailing addresses: a row is returned only when the primary practice location or another practice location matches every requested location field (any other row the registry returns is filtered out, with a `notice` counting it), and a row kept on another practice location names it in `matchedLocation`
 - `limit` 1–200 (default 10), `skip` 0–1000; the registry never reports a true match total, only the first 1200 matches are reachable, and the response discloses page-size-not-total via `truncated` / `notice`
@@ -73,7 +73,8 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 ### `npi_lookup_taxonomy` <sub>tool</sub>
 
-- Three modes: `resolve` (plain-language term → matching codes/descriptions), `get` (exact code → full entry), `browse` (walk grouping → classification → specialization, filterable by grouping and NPI `section`)
+- Three modes: `resolve` (plain-language term → matching codes/descriptions), `get` (exact code → full entry, including NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by grouping and NPI `section`)
+- Every entry carries `status` (`active` / `inactive`) and, for an inactive code, the `replacedBy` code NUCC names; `resolve` never returns inactive codes, while `get` and `browse` still do. A query that matches only inactive codes fails with `no_match` naming them and their replacements
 - `resolve` / `browse` cap results at `limit` (≤50, default 20) and disclose `truncated`; page past the cap with `skip` (0–1000, raised by `limit` each call)
 - A resolved entry's `specialization` (or `classification` when specialization is absent) is the exact value `npi_search_providers.taxonomy_description` accepts
 - Typed error reasons: `no_match`, `missing_argument`
@@ -89,7 +90,7 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 ### `npi://taxonomy/{code}` <sub>resource</sub>
 
-- Returns the same entry as `npi_lookup_taxonomy` mode `get`, as `application/json`; cached publicly for 24 hours
+- Returns the same entry as `npi_lookup_taxonomy` mode `get` (NUCC `notes`, `status`, and `replacedBy` included; inactive codes stay readable), as `application/json`; cached publicly for 24 hours
 - `code` must match `^\d{3}[A-Z0-9]{6}X$`; `no_match` when no entry exists for the code
 
 ## Features
@@ -99,7 +100,7 @@ Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): s
 NPI/NPPES-specific:
 
 - **Keyless** — runs against the public CMS NPPES NPI Registry API (v2.1) with no API key or account
-- **Bundled NUCC taxonomy** — the 879-code Healthcare Provider Taxonomy (v25.0) ships in the image and loads into an in-memory index at startup, so specialty resolution and code lookups work fully offline with no second upstream
+- **Bundled NUCC taxonomy** — the 883-code Healthcare Provider Taxonomy (v26.1) ships in the image and loads into an in-memory index at startup, so specialty resolution and code lookups work fully offline with no second upstream
 - Specialty resolution turns a vague term ("heart doctor") into the precise taxonomy description the registry filters on, and echoes the match back for the agent to verify
 - Detects the registry's quirk of returning HTTP 200 with an `Errors[]` body on validation failure and maps it to typed, recoverable error reasons
 

@@ -11,9 +11,14 @@
 export type TaxonomySection = 'Individual' | 'Non-Individual';
 
 /**
- * A single NUCC Healthcare Provider Taxonomy entry, trimmed to the fields this
- * server surfaces. The upstream `Notes` column (citations, revision history) is
- * dropped at bundle time — it carries no value for resolution or display.
+ * Whether NUCC still maintains a code. NUCC records inactivity only in the `Notes`
+ * column (`marked inactive`); the bundle generator derives this field from it.
+ */
+export type TaxonomyStatus = 'active' | 'inactive';
+
+/**
+ * A single NUCC Healthcare Provider Taxonomy entry: every upstream column, trimmed,
+ * plus the `status` and `replacedBy` fields the bundle generator derives from them.
  */
 export interface TaxonomyEntry {
   /** Classification within the grouping, e.g. `Internal Medicine`. */
@@ -26,8 +31,14 @@ export interface TaxonomyEntry {
   displayName: string;
   /** Top-level grouping, e.g. `Allopathic & Osteopathic Physicians`. */
   grouping: string;
+  /** NUCC `Notes` cell — sources, revision history, status remarks. Absent when the cell is empty. */
+  notes?: string;
+  /** For an inactive code, the active replacement code NUCC names. Absent when none is named. */
+  replacedBy?: string;
   /** NPI enumeration scope this taxonomy applies to. */
   section: TaxonomySection;
   /** Specialization within the classification, e.g. `Cardiovascular Disease`. Absent for top-level classification codes. */
   specialization?: string;
+  /** Whether NUCC still maintains the code. */
+  status: TaxonomyStatus;
 }
