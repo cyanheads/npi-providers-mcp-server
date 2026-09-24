@@ -8,7 +8,7 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
-import type { NppesSearchParams } from '@/services/nppes/types.js';
+import type { NppesSearchParams, ProviderLocation } from '@/services/nppes/types.js';
 import { getTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 /** Heuristically split a single name string into first/last parts. */
@@ -30,6 +30,34 @@ function postalCodeMatches(rowPostal: string | undefined, requested: string): bo
   return row.length <= req.length ? req.startsWith(row) : row.startsWith(req);
 }
 
+/**
+ * Whether one location satisfies every requested field on its own: state and city
+ * case-insensitively (rows are upstream-uppercase), postal code by ZIP/ZIP+4 prefix.
+ * An empty request matches every location.
+ */
+function locationMatches(location: ProviderLocation, requested: ProviderLocation): boolean {
+  if (requested.state && location.state?.toUpperCase() !== requested.state.toUpperCase()) {
+    return false;
+  }
+  if (requested.city && location.city?.toUpperCase() !== requested.city.toUpperCase()) {
+    return false;
+  }
+  if (requested.postalCode && !postalCodeMatches(location.postalCode, requested.postalCode)) {
+    return false;
+  }
+  return true;
+}
+
+/** Render a location as `City, ST 12345`, omitting absent parts. */
+function renderLocation(location: {
+  city?: string | undefined;
+  postalCode?: string | undefined;
+  state?: string | undefined;
+}): string {
+  const cityState = [location.city, location.state].filter(Boolean).join(', ');
+  return [cityState, location.postalCode].filter(Boolean).join(' ');
+}
+
 const ProviderRowSchema = z
   .object({
     npi: z
@@ -49,9 +77,25 @@ const ProviderRowSchema = z
       .describe(
         "The provider's primary taxonomy (the entry flagged primary, else the first listed).",
       ),
-    city: z.string().optional().describe('Practice-location city when present.'),
-    state: z.string().optional().describe('Practice-location state when present.'),
-    postalCode: z.string().optional().describe('Practice-location postal/ZIP code when present.'),
+    city: z.string().optional().describe('Primary practice-location city when present.'),
+    state: z.string().optional().describe('Primary practice-location state when present.'),
+    postalCode: z
+      .string()
+      .optional()
+      .describe('Primary practice-location postal/ZIP code when present.'),
+    matchedLocation: z
+      .object({
+        city: z.string().optional().describe('City of the matching practice location.'),
+        state: z.string().optional().describe('State of the matching practice location.'),
+        postalCode: z
+          .string()
+          .optional()
+          .describe('Postal/ZIP code of the matching practice location.'),
+      })
+      .optional()
+      .describe(
+        'The additional practice location that satisfied the requested city/state/postal_code. Present only when the primary practice location is elsewhere.',
+      ),
     status: z
       .enum(['active', 'deactivated'])
       .describe('Registry status — never treat a deactivated NPI as current.'),
@@ -60,7 +104,7 @@ const ProviderRowSchema = z
 
 export const searchProvidersTool = tool('npi_search_providers', {
   description:
-    'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s specialization or classification becomes taxonomy_description, and all resolved candidates are returned in metadata. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. At least one search criterion is required, and the registry rejects state-only searches. For specialty searches, returned providers are limited to the requested city/state/postal_code even when the registry includes providers outside that location. The registry never reports a true match total and only the first 1200 matches are reachable, so broad queries are capped.',
+    'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s specialization or classification becomes taxonomy_description, and all resolved candidates are returned in metadata. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. At least one search criterion is required, and the registry rejects state-only searches. When city/state/postal_code are given, only practice addresses are searched, never mailing addresses: a provider is returned only when its primary practice location or one of its other practice locations matches all of them. A provider kept on another practice location names it in matchedLocation. The registry never reports a true match total and only the first 1200 matches are reachable, so broad queries are capped.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   errors: [
@@ -301,18 +345,26 @@ export const searchProvidersTool = tool('npi_search_providers', {
     if (resolvedTaxonomies) ctx.enrich({ resolvedTaxonomies });
     if (taxonomyDescription) ctx.enrich({ appliedTaxonomyDescription: taxonomyDescription });
 
-    // NPPES does not treat the requested city/state/postal_code as a hard filter
-    // when taxonomy_description is present — it returns providers outside the
-    // requested location. Post-filter the normalized rows by whichever location
-    // fields were requested so out-of-location rows aren't presented
-    // as matches. City compares case-insensitively (rows are upstream-uppercase);
-    // postal_code prefix-matches to tolerate the 5-vs-9-digit ZIP+4 split.
+    /**
+     * The service asks NPPES for practice-address matches only (address_purpose=LOCATION),
+     * which covers the primary LOCATION address and every practiceLocations[] entry.
+     * This filter is the guarantee on top of it: keep a row only when one professional
+     * location satisfies every requested field on its own, so requested fields split
+     * across two locations, or any other row the registry returns without a matching
+     * practice location, never reach the caller. Such drops are rare. A row kept on a
+     * secondary practice location carries it as matchedLocation, so the primary
+     * address is never the only location shown for it.
+     */
+    const requested: ProviderLocation = {
+      ...(city ? { city } : {}),
+      ...(state ? { state } : {}),
+      ...(postalCode ? { postalCode } : {}),
+    };
     const rawCount = providers.length;
-    const providersInLocation = providers.filter((p) => {
-      if (state && p.state?.trim().toUpperCase() !== state.toUpperCase()) return false;
-      if (city && p.city?.trim().toUpperCase() !== city.toUpperCase()) return false;
-      if (postalCode && !postalCodeMatches(p.postalCode, postalCode)) return false;
-      return true;
+    const providersInLocation = providers.flatMap(({ practiceLocations, ...row }) => {
+      if (locationMatches(row, requested)) return [row];
+      const matchedLocation = practiceLocations.find((l) => locationMatches(l, requested));
+      return matchedLocation ? [{ ...row, matchedLocation }] : [];
     });
     const filteredOut = rawCount - providersInLocation.length;
 
@@ -331,15 +383,15 @@ export const searchProvidersTool = tool('npi_search_providers', {
         'No providers matched. The registry uses substring matching on specialty and rejects state-only searches — try broadening, verifying the specialty resolution, or pairing state with a name/city.',
       );
     } else if (providersInLocation.length === 0) {
-      // Upstream matched the specialty but nothing in the requested location. The
-      // specialty DID resolve and match, so don't emit the generic broaden notice.
+      // Upstream matched, but no provider practices in the requested location. The
+      // other criteria DID match, so don't emit the generic broaden notice.
       noticeParts.push(
-        `${rawCount} provider(s) matched but none were in the requested location; the registry does not treat location as a hard filter for specialty searches. Broaden or drop the location, or pass taxonomy_description.`,
+        `${rawCount} provider(s) matched but none were in the requested location: no provider's practice location matches every requested location field on its own. Broaden or drop the location.`,
       );
     } else {
       if (filteredOut > 0) {
         noticeParts.push(
-          `${filteredOut} out-of-location row(s) the registry returned were filtered out.`,
+          `${filteredOut} out-of-location row(s) the registry returned were filtered out: for each, no practice location matches every requested location field on its own.`,
         );
       }
       if (fullPage) {
@@ -368,9 +420,11 @@ export const searchProvidersTool = tool('npi_search_providers', {
           `**Primary specialty:** ${p.primaryTaxonomy.description ?? 'Unknown'} (${p.primaryTaxonomy.code})`,
         );
       }
-      const loc = [p.city, p.state].filter(Boolean).join(', ');
-      const locWithZip = [loc, p.postalCode].filter(Boolean).join(' ');
-      if (locWithZip) lines.push(`**Location:** ${locWithZip}`);
+      const location = renderLocation(p);
+      if (location) lines.push(`**Location:** ${location}`);
+      if (p.matchedLocation) {
+        lines.push(`**Matched practice location:** ${renderLocation(p.matchedLocation)}`);
+      }
     }
     return [{ type: 'text', text: lines.join('\n') }];
   },

@@ -5,7 +5,7 @@
  * @module tests/integration/correctness-boundaries.integration.test
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { providerResource } from '@/mcp-server/resources/definitions/provider.resource.js';
 import { taxonomyResource } from '@/mcp-server/resources/definitions/taxonomy.resource.js';
@@ -28,10 +28,6 @@ const INDIVIDUAL_RESULT = {
     last_name: 'CLINICIAN',
     credential: 'MD',
     status: 'D',
-    replacement_npi: ORGANIZATION_NPI,
-    deactivation_reason_code: '1',
-    deactivation_date: '2024-03-01',
-    reactivation_date: '2024-05-15',
   },
   taxonomies: [
     {
@@ -92,6 +88,8 @@ const INDIVIDUAL_RESULT = {
       endpoint: 'https://clinic.example/fhir',
       endpointType: 'FHIR',
       endpointDescription: 'Clinic FHIR endpoint',
+      use: 'OTHER',
+      useOtherDescription: 'Referral routing',
       contentOtherDescription: 'US Core',
       address_1: '500 CLINIC AVE',
       address_2: 'SUITE 200',
@@ -126,6 +124,7 @@ const ORGANIZATION_RESULT = {
 function stubNppes(resultsFor: (url: URL) => unknown[]): ReturnType<typeof vi.fn> {
   const fetchSpy = vi.fn(async (input: string | URL | Request) => {
     const url = new URL(String(input));
+    if (url.origin !== 'https://npiregistry.cms.hhs.gov') throw new Error('unmocked fetch');
     const results = resultsFor(url);
     return new Response(JSON.stringify({ result_count: results.length, results }), {
       status: 200,
@@ -171,14 +170,32 @@ describe('NPI validation at both public boundaries', () => {
     }
   });
 
-  it.skip('rejects a checksum failure and a leading-zero identifier before fetch (#13)', () => {
+  it('reports a check-digit failure at both public boundaries without a registry request (#13)', async () => {
     // https://github.com/cyanheads/npi-providers-mcp-server/issues/13
-    const fetchSpy = stubNppes(() => []);
-    for (const npi of ['1720034425', '0123456788']) {
-      expect(getProviderTool.input.safeParse({ npis: npi }).success).toBe(false);
-      expect(providerResource.params!.safeParse({ npi }).success).toBe(false);
-    }
-    expect(fetchSpy).not.toHaveBeenCalled();
+    const fetchSpy = stubNppes(() => [INDIVIDUAL_RESULT]);
+    // The schemas keep only the 10-digit shape; the check digit is a handler rule.
+    expect(getProviderTool.input.safeParse({ npis: '1720034425' }).success).toBe(true);
+    expect(providerResource.params!.safeParse({ npi: '1720034425' }).success).toBe(true);
+
+    const toolResult = await getProviderTool.handler(
+      getProviderTool.input.parse({ npis: [VALID_NPI, '1720034425'] }),
+      createMockContext({ errors: getProviderTool.errors }),
+    );
+    expect(toolResult.found.map((record) => record.npi)).toEqual([VALID_NPI]);
+    expect(toolResult.invalid.map((entry) => entry.npi)).toEqual(['1720034425']);
+    expect(toolResult.notFound).toEqual([]);
+
+    await expect(
+      providerResource.handler(
+        providerResource.params!.parse({ npi: '1720034425' }),
+        createMockContext({ errors: providerResource.errors }),
+      ),
+    ).rejects.toMatchObject({ data: { reason: 'invalid_npi_format' } });
+
+    const requested = fetchSpy.mock.calls.map(([url]) =>
+      new URL(String(url)).searchParams.get('number'),
+    );
+    expect(requested).toEqual([VALID_NPI]);
   });
 });
 
@@ -243,20 +260,7 @@ describe('provider identity and record state', () => {
     expect(record.credential).toBeUndefined();
   });
 
-  it.skip('preserves replacement and lifecycle fields instead of returning stale registration state (#9)', async () => {
-    // https://github.com/cyanheads/npi-providers-mcp-server/issues/9
-    stubNppes(() => [INDIVIDUAL_RESULT]);
-    const record = await providerResource.handler(
-      providerResource.params!.parse({ npi: VALID_NPI }),
-      createMockContext({ errors: providerResource.errors }),
-    );
-    expect(record).toHaveProperty('replacementNpi', ORGANIZATION_NPI);
-    expect(record).toHaveProperty('deactivationReasonCode', '1');
-    expect(record).toHaveProperty('deactivationDate', '2024-03-01');
-    expect(record).toHaveProperty('reactivationDate', '2024-05-15');
-  });
-
-  it.skip('preserves live endpoint description and second address line fields (#9)', async () => {
+  it('preserves live endpoint description and second address line fields (#9)', async () => {
     // https://github.com/cyanheads/npi-providers-mcp-server/issues/9
     stubNppes(() => [INDIVIDUAL_RESULT]);
     const result = await getProviderTool.handler(
@@ -265,14 +269,30 @@ describe('provider identity and record state', () => {
     );
     expect(result.found[0]?.endpoints[0]).toMatchObject({
       endpointDescription: 'Clinic FHIR endpoint',
+      useOtherDescription: 'Referral routing',
       contentOtherDescription: 'US Core',
+      line2: 'SUITE 200',
+    });
+    const text = getProviderTool.format!(result)
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    for (const value of ['Clinic FHIR endpoint', 'Referral routing', 'US Core', 'SUITE 200']) {
+      expect(text).toContain(value);
+    }
+
+    const resourceRecord = (await providerResource.handler(
+      providerResource.params!.parse({ npi: VALID_NPI }),
+      createMockContext({ errors: providerResource.errors }),
+    )) as ProviderRecord;
+    expect(resourceRecord.endpoints[0]).toMatchObject({
+      endpointDescription: 'Clinic FHIR endpoint',
       line2: 'SUITE 200',
     });
   });
 });
 
 describe('public professional-data boundary', () => {
-  it.skip('omits an individual provider mailing/home address from tool and resource output (#14)', async () => {
+  it('omits an individual provider mailing/home address from tool and resource output (#14)', async () => {
     // https://github.com/cyanheads/npi-providers-mcp-server/issues/14
     stubNppes(() => [INDIVIDUAL_RESULT]);
 
@@ -290,12 +310,17 @@ describe('public professional-data boundary', () => {
       expect(JSON.stringify(addresses)).not.toContain('PRIVATE HOME LANE');
       expect(JSON.stringify(addresses)).not.toContain('206-555-0101');
     }
+    const text = getProviderTool.format!(toolResult)
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).not.toContain('PRIVATE HOME LANE');
+    expect(text).toContain('500 CLINIC AVE');
     expect(resourceResult.addresses).toContainEqual(
       expect.objectContaining({ purpose: 'LOCATION', line1: '500 CLINIC AVE' }),
     );
   });
 
-  it.skip('does not fall back to a mailing/home address in compact search rows (#14)', async () => {
+  it('does not fall back to a mailing/home address in compact search rows (#14)', async () => {
     // https://github.com/cyanheads/npi-providers-mcp-server/issues/14
     stubNppes(() => [
       {
@@ -310,6 +335,59 @@ describe('public professional-data boundary', () => {
     expect(result.providers[0]).not.toHaveProperty('city');
     expect(result.providers[0]).not.toHaveProperty('state');
     expect(result.providers[0]).not.toHaveProperty('postalCode');
+  });
+
+  it('matches a location search on any practice location, never on the mailing address (#18)', async () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/18
+    const fetchSpy = stubNppes(() => [INDIVIDUAL_RESULT]);
+
+    // 98101 is only the individual's MAILING (home) ZIP: the row is dropped.
+    const mailingOnly = await runToolContract(searchProvidersTool, {
+      postal_code: '98101',
+      limit: 10,
+    });
+    expect(mailingOnly.structuredContent).toMatchObject({ providers: [] });
+
+    // TACOMA is the second practice location: the row is kept and names it.
+    const secondary = await runToolContract(searchProvidersTool, {
+      city: 'Tacoma',
+      state: 'WA',
+      limit: 10,
+    });
+    expect(secondary.structuredContent).toMatchObject({
+      providers: [
+        {
+          npi: VALID_NPI,
+          city: 'SEATTLE',
+          postalCode: '981020000',
+          matchedLocation: { city: 'TACOMA', state: 'WA', postalCode: '984020000' },
+        },
+      ],
+    });
+    const text = secondary.content
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain('**Matched practice location:** TACOMA, WA 984020000');
+    for (const surface of [JSON.stringify(secondary.structuredContent), text]) {
+      expect(surface).not.toContain('PRIVATE HOME LANE');
+      expect(surface).not.toContain('981010000');
+    }
+
+    const queries = fetchSpy.mock.calls.map(([url]) =>
+      Object.fromEntries(new URL(String(url)).searchParams),
+    );
+    // A location search asks NPPES for practice-address matches only (#19).
+    expect(queries).toEqual([
+      { version: '2.1', limit: '10', skip: '0', postal_code: '98101', address_purpose: 'LOCATION' },
+      {
+        version: '2.1',
+        limit: '10',
+        skip: '0',
+        city: 'Tacoma',
+        state: 'WA',
+        address_purpose: 'LOCATION',
+      },
+    ]);
   });
 });
 

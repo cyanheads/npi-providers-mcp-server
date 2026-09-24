@@ -13,11 +13,14 @@ import { NppesService } from '@/services/nppes/nppes-service.js';
 const NPI = '1720034424';
 const service = new NppesService('https://npiregistry.cms.hhs.gov/api', 15000);
 
+/** Answer every registry request with `body` as an HTTP 200; any other URL rejects as unmocked. */
 function stubText(body: string): ReturnType<typeof vi.fn> {
-  const fetchSpy = vi.fn(
-    async () =>
-      new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }),
-  );
+  const fetchSpy = vi.fn(async (url: string | URL) => {
+    if (!String(url).startsWith('https://npiregistry.cms.hhs.gov/api/')) {
+      throw new Error('unmocked fetch');
+    }
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  });
   vi.stubGlobal('fetch', fetchSpy);
   return fetchSpy;
 }
@@ -27,19 +30,19 @@ function stubJson(body: unknown): ReturnType<typeof vi.fn> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('NPPES response parser fuzzing', () => {
-  it('handles empty success envelopes deterministically', async () => {
+  it('handles the empty success envelope deterministically', async () => {
     const ctx = createMockContext();
-    for (const body of [{}, { result_count: 0 }, { result_count: 0, results: [] }]) {
-      stubJson(body);
-      await expect(service.search({ lastName: 'NONE', limit: 10, skip: 0 }, ctx)).resolves.toEqual(
-        [],
-      );
-      vi.unstubAllGlobals();
-    }
+    stubJson({ result_count: 0, results: [] });
+    await expect(service.search({ lastName: 'NONE', limit: 10, skip: 0 }, ctx)).resolves.toEqual(
+      [],
+    );
+    stubJson({ result_count: 0, results: [] });
+    await expect(service.getByNumber(NPI, ctx)).resolves.toBeNull();
   });
 
   it('normalizes generated sparse optional-field variants without fabricating absent values', async () => {
@@ -153,14 +156,17 @@ describe('NPPES response parser fuzzing', () => {
     expect(fetchSpy.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it.skip('rejects structurally malformed or identity-less results with a typed upstream error (#15)', async () => {
-    // https://github.com/cyanheads/npi-providers-mcp-server/issues/15
-    const malformedBodies = [
-      null,
-      { Errors: {} },
-      { result_count: 1, results: {} },
-      { result_count: 1, results: [null] },
-      { result_count: 1, results: [{}] },
+  // https://github.com/cyanheads/npi-providers-mcp-server/issues/15 — one body per test. Each
+  // body is retried by the real withRetry loop; fake timers stand in for the ~3.5 s backoff
+  // (the malformed-JSON and HTML cases above exercise the same loop on real timers).
+  it.each<[string, unknown]>([
+    ['a null body', null],
+    ['a non-array Errors', { Errors: {} }],
+    ['an object results', { result_count: 1, results: {} }],
+    ['a null result', { result_count: 1, results: [null] }],
+    ['an empty result', { result_count: 1, results: [{}] }],
+    [
+      'a result with no status',
       {
         result_count: 1,
         results: [
@@ -171,18 +177,23 @@ describe('NPPES response parser fuzzing', () => {
           },
         ],
       },
-    ];
-
-    for (const body of malformedBodies) {
-      stubJson(body);
-      const outcome = await service
-        .getByNumber(NPI, createMockContext())
-        .then((record) => ({ record }))
-        .catch((error) => ({ error }));
-      expect(outcome).not.toHaveProperty('record');
-      expect(outcome).toHaveProperty('error');
-      expect((outcome as { error: unknown }).error).toBeInstanceOf(McpError);
-      vi.unstubAllGlobals();
-    }
+    ],
+    ['an envelope with no results', {}],
+    ['a zero count with no results', { result_count: 0 }],
+  ])('rejects %s with a retried, typed upstream error (#15)', async (_label, body) => {
+    const fetchSpy = stubJson(body);
+    vi.useFakeTimers();
+    const pending = service
+      .getByNumber(NPI, createMockContext())
+      .then((record) => ({ record }))
+      .catch((error: unknown) => ({ error }));
+    await vi.runAllTimersAsync();
+    const outcome = await pending;
+    expect(outcome).not.toHaveProperty('record');
+    const { error } = outcome as { error: McpError };
+    expect(error).toBeInstanceOf(McpError);
+    expect(error.code).toBe(JsonRpcErrorCode.ServiceUnavailable);
+    expect(error.message).toMatch(/malformed/i);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 });

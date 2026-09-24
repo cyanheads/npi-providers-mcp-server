@@ -1,18 +1,25 @@
 /**
- * @fileoverview npi_get_provider — fetch the complete NPPES record for one or more
- * NPIs (up to 10), fanning out one call per NPI with partial-success reporting.
+ * @fileoverview npi_get_provider — fetch the NPPES professional-practice record for
+ * one or more NPIs (up to 10). Checks each NPI's check digit first, then fans out one
+ * call per valid NPI with partial-success reporting.
  * @module mcp-server/tools/definitions/get-provider.tool
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { hasValidNpiCheckDigit } from '@/mcp-server/npi-check-digit.js';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
 import type { ProviderRecord } from '@/services/nppes/types.js';
+
+const INVALID_CHECK_DIGIT_REASON =
+  'Fails the NPI check digit — not a valid NPI (usually a typo or transposed digits); not looked up.';
 
 const NpiString = z
   .string()
   .regex(/^\d{10}$/, 'An NPI is exactly 10 digits.')
-  .describe('A 10-digit National Provider Identifier.');
+  .describe(
+    'A 10-digit National Provider Identifier whose last digit is its check digit (Luhn over the number prefixed with 80840).',
+  );
 
 const TaxonomySchema = z
   .object({
@@ -27,7 +34,12 @@ const TaxonomySchema = z
 
 const AddressSchema = z
   .object({
-    purpose: z.string().optional().describe('Address purpose (LOCATION or MAILING).'),
+    purpose: z
+      .string()
+      .optional()
+      .describe(
+        'Address purpose: LOCATION (practice) or MAILING. Only LOCATION rows are kept for individual providers; organizations also carry MAILING.',
+      ),
     addressType: z.string().optional().describe('Address type (DOM domestic or FOR foreign).'),
     line1: z.string().optional().describe('Address line 1.'),
     line2: z.string().optional().describe('Address line 2.'),
@@ -39,7 +51,7 @@ const AddressSchema = z
     telephoneNumber: z.string().optional().describe('Telephone number, when present.'),
     faxNumber: z.string().optional().describe('Fax number, when present.'),
   })
-  .describe('A practice or mailing address.');
+  .describe('A practice (LOCATION) address, or an organization mailing address.');
 
 const IdentifierSchema = z
   .object({
@@ -69,13 +81,27 @@ const EndpointSchema = z
     endpointType: z.string().optional().describe('Endpoint type code (e.g. "DIRECT", "FHIR").'),
     endpointTypeDescription: z.string().optional().describe('Endpoint type description.'),
     endpoint: z.string().describe('The endpoint URI/address.'),
+    endpointDescription: z
+      .string()
+      .optional()
+      .describe('Free-text description of the endpoint (e.g. "Carequality"), when present.'),
     use: z.string().optional().describe('Endpoint use code (e.g. "HIE"), when present.'),
     useDescription: z.string().optional().describe('Endpoint use description, when present.'),
+    useOtherDescription: z
+      .string()
+      .optional()
+      .describe('What the endpoint is used for when the use code is OTHER, when present.'),
     contentType: z.string().optional().describe('Endpoint content type code, when present.'),
     contentTypeDescription: z
       .string()
       .optional()
       .describe('Endpoint content type description, when present.'),
+    contentOtherDescription: z
+      .string()
+      .optional()
+      .describe(
+        'The content the endpoint carries when the content type is OTHER (e.g. "C-CDA"), when present.',
+      ),
     affiliation: z
       .string()
       .optional()
@@ -86,6 +112,7 @@ const EndpointSchema = z
       .describe('Name of the affiliated organization, when present.'),
     addressType: z.string().optional().describe('Endpoint address type (DOM/FOR), when present.'),
     line1: z.string().optional().describe('Endpoint address line 1, when present.'),
+    line2: z.string().optional().describe('Endpoint address line 2, when present.'),
     city: z.string().optional().describe('Endpoint city, when present.'),
     state: z.string().optional().describe('Endpoint state, when present.'),
     postalCode: z.string().optional().describe('Endpoint postal/ZIP code, when present.'),
@@ -143,7 +170,11 @@ const FullProviderRecordSchema = z
       .optional()
       .describe('Record last-update timestamp, epoch milliseconds, when present.'),
     taxonomies: z.array(TaxonomySchema).describe('All taxonomies (specialties) on the record.'),
-    addresses: z.array(AddressSchema).describe('All practice and mailing addresses.'),
+    addresses: z
+      .array(AddressSchema)
+      .describe(
+        'Registry addresses. Only LOCATION (practice) rows are kept for individual providers — their mailing address is withheld; organizations carry both LOCATION and MAILING rows.',
+      ),
     practiceLocations: z
       .array(AddressSchema)
       .describe('Additional practice locations, when present.'),
@@ -153,7 +184,9 @@ const FullProviderRecordSchema = z
     otherNames: z.array(OtherNameSchema).describe('Former / alternate names, when present.'),
     endpoints: z.array(EndpointSchema).describe('FHIR / Direct endpoints, when present.'),
   })
-  .describe('A fully decoded NPPES provider record.');
+  .describe(
+    "A decoded NPPES provider record — the registry's professional-practice data. Only LOCATION address rows are kept for individual providers.",
+  );
 
 /** Map a domain record to the output shape (domain already omits absent fields). */
 function toFullRecord(r: ProviderRecord): z.infer<typeof FullProviderRecordSchema> {
@@ -265,16 +298,19 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
       const meta = [
         e.endpointTypeDescription,
         e.endpointType,
+        e.endpointDescription,
         e.use && `use ${e.use}`,
         e.useDescription,
+        e.useOtherDescription,
         e.contentType && `content ${e.contentType}`,
         e.contentTypeDescription,
+        e.contentOtherDescription,
         e.affiliation && `affiliation ${e.affiliation}`,
         e.affiliationName,
       ]
         .filter(Boolean)
         .join(' · ');
-      const addr = [e.line1, e.city, e.state, e.postalCode].filter(Boolean).join(', ');
+      const addr = [e.line1, e.line2, e.city, e.state, e.postalCode].filter(Boolean).join(', ');
       const country = [e.countryName, e.countryCode ? `(${e.countryCode})` : undefined]
         .filter(Boolean)
         .join(' ');
@@ -289,16 +325,23 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
 
 export const getProviderTool = tool('npi_get_provider', {
   description:
-    'Fetch the complete NPPES record for one or more NPI numbers (up to 10 per call). Decodes an NPI from a claim, prescription, or another health data source into a fully populated provider profile: every taxonomy with its primary flag, license number and state; all practice and mailing addresses; credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. The 10-digit NPI format is validated before any API call. Reports partial success: well-formed NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.',
+    "Fetch the NPPES record for one or more NPI numbers (up to 10 per call). Decodes an NPI from a claim, prescription, or another health data source into the provider's professional-practice profile: every taxonomy with its primary flag, license number and state; practice addresses with phone and fax (only LOCATION rows are kept for individual providers, so their mailing address is withheld; organizations also carry their mailing address); credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. Each NPI must be 10 digits with a valid check digit (its last digit); an NPI failing the check digit lands in invalid and is never looked up. Reports partial success: valid NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.",
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   errors: [
     {
       reason: 'none_found',
       code: JsonRpcErrorCode.NotFound,
-      when: 'Every requested NPI returned a confirmed no-record response — none failed with an upstream error (those surface as the underlying service/timeout error instead).',
+      when: 'Every requested NPI with a valid check digit returned a confirmed no-record response — none failed with an upstream error (those surface as the underlying service/timeout error instead).',
       recovery:
         'Verify the NPI(s); deactivated or never-enumerated numbers return nothing. Search by name to confirm.',
+    },
+    {
+      reason: 'invalid_npi_format',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'Every requested NPI failed the NPI check digit, so none was looked up.',
+      recovery:
+        'The last digit does not match the NPI check digit, which usually means a typo or transposed digits — re-copy the NPI, or find it by name with npi_search_providers.',
     },
   ],
 
@@ -309,14 +352,12 @@ export const getProviderTool = tool('npi_get_provider', {
         z.array(NpiString).min(1).max(10).describe('An array of up to 10 ten-digit NPIs.'),
       ])
       .describe(
-        'A single 10-digit NPI, or an array of up to 10. Each is validated as exactly 10 digits before any API call.',
+        'A single 10-digit NPI, or an array of up to 10. Each must be exactly 10 digits; each is also checked against its NPI check digit before any API call, and one that fails is reported in invalid.',
       ),
   }),
 
   output: z.object({
-    found: z
-      .array(FullProviderRecordSchema)
-      .describe('Fully decoded records for NPIs that resolved.'),
+    found: z.array(FullProviderRecordSchema).describe('Decoded records for NPIs that resolved.'),
     notFound: z
       .array(
         z
@@ -327,7 +368,7 @@ export const getProviderTool = tool('npi_get_provider', {
           .describe('A requested NPI that returned no record.'),
       )
       .describe(
-        'NPIs that were well-formed but returned no record (deactivated or never enumerated). A confirmed absence, not a failure.',
+        'NPIs with a valid check digit that returned no record (deactivated or never enumerated). A confirmed absence, not a failure.',
       ),
     errored: z
       .array(
@@ -343,22 +384,44 @@ export const getProviderTool = tool('npi_get_provider', {
       .describe(
         'NPIs whose lookups failed with an upstream/transport error (service unavailable, timeout) — distinct from a confirmed miss in notFound. These are unresolved, not absent; retry them.',
       ),
+    invalid: z
+      .array(
+        z
+          .object({
+            npi: z.string().describe('The requested NPI that failed the check digit.'),
+            reason: z.string().describe('Why the NPI was rejected.'),
+          })
+          .describe('A requested NPI that failed the NPI check digit.'),
+      )
+      .describe(
+        'NPIs that failed the NPI check digit — not valid NPIs, usually a typo. They were never looked up, so they are neither confirmed misses nor upstream failures.',
+      ),
   }),
 
   enrichment: {
     totalCount: z
       .number()
       .describe('Number of provider records that resolved from the requested NPIs.'),
-    notice: z.string().optional().describe('Guidance when some or all NPIs returned nothing.'),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Guidance when some NPIs failed the check digit, returned no record, or hit an upstream error.',
+      ),
   },
 
   async handler(input, ctx) {
     const npis = Array.isArray(input.npis) ? input.npis : [input.npis];
     // De-dupe while preserving order.
     const unique = [...new Set(npis)];
+    // A failing check digit is a typo, not a registry miss: report it and skip the lookup.
+    const invalid = unique
+      .filter((npi) => !hasValidNpiCheckDigit(npi))
+      .map((npi) => ({ npi, reason: INVALID_CHECK_DIGIT_REASON }));
+    const lookups = unique.filter(hasValidNpiCheckDigit);
     const nppes = getNppesService();
 
-    const settled = await Promise.allSettled(unique.map((npi) => nppes.getByNumber(npi, ctx)));
+    const settled = await Promise.allSettled(lookups.map((npi) => nppes.getByNumber(npi, ctx)));
 
     const found: z.infer<typeof FullProviderRecordSchema>[] = [];
     const notFound: { npi: string; reason: string }[] = [];
@@ -367,10 +430,10 @@ export const getProviderTool = tool('npi_get_provider', {
 
     // Three-way partition. A fulfilled-null leg is a CONFIRMED absence (result_count 0);
     // a rejected leg is an OPERATIONAL failure (service unavailable / timeout / non-OK
-    // status, already retried by the service). Never conflate the two: a failure reported
-    // as "not found" would tell the caller to fix a valid NPI during an outage.
+    // status / malformed body, already retried by the service). Never conflate the two: a
+    // failure reported as "not found" would tell the caller to fix a valid NPI during an outage.
     for (const [idx, res] of settled.entries()) {
-      const npi = unique[idx] as string;
+      const npi = lookups[idx] as string;
       if (res.status === 'fulfilled') {
         if (res.value) found.push(toFullRecord(res.value));
         else notFound.push({ npi, reason: 'No record in the NPPES registry for this NPI.' });
@@ -388,17 +451,32 @@ export const getProviderTool = tool('npi_get_provider', {
       // surface the real upstream error (its code, reason, and recovery) instead of
       // none_found. Only when every miss is a confirmed absence do we throw none_found.
       if (failures.length > 0) throw failures[0];
+      const invalidList = invalid.map((i) => i.npi).join(', ');
+      if (lookups.length === 0) {
+        throw ctx.fail(
+          'invalid_npi_format',
+          `Every requested NPI failed the NPI check digit: ${invalidList}.`,
+          { ...ctx.recoveryFor('invalid_npi_format') },
+        );
+      }
+      const invalidNote =
+        invalid.length > 0
+          ? ` ${invalid.length} failed the NPI check digit and ${invalid.length === 1 ? 'was' : 'were'} not looked up: ${invalidList}.`
+          : '';
       throw ctx.fail(
         'none_found',
-        `None of the ${unique.length} requested NPI(s) returned a record.`,
-        {
-          ...ctx.recoveryFor('none_found'),
-        },
+        `None of the ${unique.length} requested NPI(s) returned a record.${invalidNote}`,
+        { ...ctx.recoveryFor('none_found') },
       );
     }
 
     ctx.enrich.total(found.length);
     const notices: string[] = [];
+    if (invalid.length > 0) {
+      notices.push(
+        `${invalid.length} of ${unique.length} NPI(s) failed the NPI check digit — not valid NPIs (usually a typo) and not looked up.`,
+      );
+    }
     if (notFound.length > 0) {
       notices.push(
         `${notFound.length} of ${unique.length} NPI(s) returned no record — deactivated or never enumerated.`,
@@ -411,7 +489,7 @@ export const getProviderTool = tool('npi_get_provider', {
     }
     if (notices.length > 0) ctx.enrich.notice(`${notices.join(' ')} Found ${found.length}.`);
 
-    return { found, notFound, errored };
+    return { found, notFound, errored, invalid };
   },
 
   format: (result) => {
@@ -426,6 +504,10 @@ export const getProviderTool = tool('npi_get_provider', {
     if (result.errored.length > 0) {
       lines.push('\n## Errored (upstream failure — unresolved, not absent; retry)');
       for (const e of result.errored) lines.push(`- **${e.npi}**: ${e.reason}`);
+    }
+    if (result.invalid.length > 0) {
+      lines.push('\n## Invalid (failed the NPI check digit — not looked up)');
+      for (const i of result.invalid) lines.push(`- **${i.npi}**: ${i.reason}`);
     }
     return [{ type: 'text', text: lines.join('\n\n') }];
   },

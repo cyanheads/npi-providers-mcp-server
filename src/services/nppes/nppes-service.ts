@@ -8,7 +8,9 @@
  * every 200 for `Errors[]` and throws a typed, contract-mapped error (carrying
  * `data.reason` + `data.retryable: false` so `withRetry` fails fast). Genuine
  * transport failures (5xx, timeout) bubble from `fetchWithTimeout` as transient
- * codes and are retried. Normalization preserves upstream sparsity — never
+ * codes and are retried, and so does a structurally malformed 200 body (see
+ * {@link validateResults}): it surfaces as `ServiceUnavailable`, never as a miss
+ * or a defaulted identity. Normalization preserves upstream sparsity — never
  * fabricates a field the registry omitted.
  */
 
@@ -19,13 +21,17 @@ import { fetchWithTimeout, withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
 import type {
   NppesSearchParams,
+  ProviderLocation,
   ProviderRecord,
   ProviderStatus,
   ProviderSummary,
   ProviderType,
+  RawEnumerationType,
+  RawNppesAddress,
+  RawNppesBasic,
   RawNppesError,
-  RawNppesResponse,
   RawNppesResult,
+  RawStatusCode,
 } from './types.js';
 
 /** Maps an NPPES `Errors[]` field code to a tool contract reason. See API Reference in docs/design.md. */
@@ -91,25 +97,125 @@ function field<K extends string, V>(
   return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
 }
 
-function normalizeStatus(status: string | undefined): ProviderStatus {
-  return trimmed(status)?.toUpperCase() === 'A' ? 'active' : 'deactivated';
+/**
+ * The many-field form of {@link field}: keep only the entries whose value is
+ * defined. Chained `field()` spreads multiply into a union TypeScript cannot
+ * represent past ~16 keys; this stays one mapped type.
+ */
+function presentFields<T extends Record<string, unknown>>(
+  fields: T,
+): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as {
+    [K in keyof T]?: Exclude<T[K], undefined>;
+  };
 }
 
-function normalizeType(enumerationType: string | undefined): ProviderType {
-  return trimmed(enumerationType) === 'NPI-2' ? 'organization' : 'individual';
+const STATUS_BY_CODE: Record<RawStatusCode, ProviderStatus> = { A: 'active', D: 'deactivated' };
+const TYPE_BY_ENUMERATION: Record<RawEnumerationType, ProviderType> = {
+  'NPI-1': 'individual',
+  'NPI-2': 'organization',
+};
+
+/** The six `results[]` fields that must be arrays of objects when present and non-null. */
+const ARRAY_FIELDS = [
+  'taxonomies',
+  'addresses',
+  'practiceLocations',
+  'identifiers',
+  'other_names',
+  'endpoints',
+] as const;
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** A structurally malformed 200 body — transient, so `withRetry` retries it like unparseable JSON. */
+function malformed(detail: string): never {
+  throw serviceUnavailable(`NPPES returned a malformed response: ${detail}.`);
+}
+
+/**
+ * Validate one `results[]` element: its identity fields, that each array field
+ * holds only objects, and that every taxonomy carries a non-blank string `code` —
+ * a taxonomy's identity, which normalization would otherwise fabricate as `""`.
+ * That is all normalization needs to run without a native throw or an invented
+ * value — every other scalar it reads goes through `trimmed()`/`epochNumber()`,
+ * which turn a wrong-typed value into absence. Unrecognized keys pass through
+ * untouched; the name is not required (the `NPI <number>` label covers it).
+ */
+function validateResult(raw: unknown, index: number): RawNppesResult {
+  const at = `results[${index}]`;
+  if (!isObject(raw)) malformed(`${at} is not an object`);
+  const { number, enumeration_type, basic } = raw;
+  if (
+    (typeof number !== 'string' && typeof number !== 'number') ||
+    !/^\d{10}$/.test(String(number))
+  ) {
+    malformed(`${at}.number is not a 10-digit NPI`);
+  }
+  if (enumeration_type !== 'NPI-1' && enumeration_type !== 'NPI-2') {
+    malformed(`${at}.enumeration_type is not NPI-1 or NPI-2`);
+  }
+  if (!isObject(basic)) malformed(`${at}.basic is not an object`);
+  if (basic.status !== 'A' && basic.status !== 'D') malformed(`${at}.basic.status is not A or D`);
+  for (const key of ARRAY_FIELDS) {
+    const value = raw[key];
+    if (value == null) continue;
+    if (!Array.isArray(value)) malformed(`${at}.${key} is not an array`);
+    const bad = value.findIndex((element) => !isObject(element));
+    if (bad !== -1) malformed(`${at}.${key}[${bad}] is not an object`);
+  }
+  const codeless = ((raw.taxonomies ?? []) as Record<string, unknown>[]).findIndex(
+    (taxonomy) => typeof taxonomy.code !== 'string' || !trimmed(taxonomy.code),
+  );
+  if (codeless !== -1) malformed(`${at}.taxonomies[${codeless}].code is not a non-empty string`);
+  return raw as unknown as RawNppesResult;
+}
+
+/**
+ * Validate a parsed 200 body and return its results. A non-empty `Errors` array
+ * is the registry's validation envelope, handed back for the typed mapping; any
+ * other shape that isn't `{ results: [...] }` is malformed. Live success bodies
+ * always carry a `results` array, zero hits included.
+ */
+function validateResults(
+  parsed: unknown,
+): { errors: RawNppesError[] } | { results: RawNppesResult[] } {
+  if (!isObject(parsed)) malformed('the body is not a JSON object');
+  if (parsed.Errors !== undefined) {
+    const errors = parsed.Errors;
+    if (!Array.isArray(errors) || errors.length === 0 || !errors.every(isObject)) {
+      malformed('Errors is not a non-empty array of objects');
+    }
+    return { errors: errors as RawNppesError[] };
+  }
+  if (!Array.isArray(parsed.results)) malformed('results is missing or not an array');
+  return { results: parsed.results.map(validateResult) };
+}
+
+function isPracticeLocation(address: RawNppesAddress): boolean {
+  return trimmed(address.address_purpose)?.toUpperCase() === 'LOCATION';
+}
+
+/** The city/state/ZIP of an address, each present only when upstream supplied it. */
+function cityStateZip(address: RawNppesAddress | undefined): ProviderLocation {
+  return presentFields({
+    city: trimmed(address?.city),
+    state: trimmed(address?.state),
+    postalCode: trimmed(address?.postal_code),
+  });
 }
 
 /** Assemble a display name from a raw result, preferring the `basic.name` org field. */
 function assembleName(raw: RawNppesResult, type: ProviderType): string {
-  const basic = raw.basic ?? {};
+  const basic = raw.basic;
   if (type === 'organization') {
-    return (
-      trimmed(basic.organization_name) ?? trimmed(basic.name) ?? `NPI ${String(raw.number ?? '')}`
-    );
+    return trimmed(basic.organization_name) ?? trimmed(basic.name) ?? `NPI ${raw.number}`;
   }
   const parts = [trimmed(basic.first_name), trimmed(basic.middle_name), trimmed(basic.last_name)];
   const assembled = parts.filter(Boolean).join(' ');
-  return assembled || trimmed(basic.name) || `NPI ${String(raw.number ?? '')}`;
+  return assembled || trimmed(basic.name) || `NPI ${raw.number}`;
 }
 
 /** The `primary: true` taxonomy, falling back to the first taxonomy when none is flagged. */
@@ -130,15 +236,16 @@ export class NppesService {
   ) {}
 
   /**
-   * Execute one NPPES search call. Inspects the 200 body for `Errors[]` and throws
-   * a contract-mapped error on presence; otherwise returns the raw response.
-   * Retry wraps the full fetch + parse + error-detect pipeline.
+   * Execute one NPPES search call and return its validated results. A 200 body
+   * carrying `Errors[]` throws a contract-mapped error; a structurally malformed
+   * body throws `ServiceUnavailable`. Retry wraps the full fetch + parse + validate
+   * pipeline, so a malformed body is retried before it surfaces.
    */
   private call(
     query: Record<string, string | number>,
     ctx: Context,
     operation: string,
-  ): Promise<RawNppesResponse> {
+  ): Promise<RawNppesResult[]> {
     return withRetry(
       async () => {
         const url = new URL(`${this.baseUrl}/`);
@@ -159,9 +266,9 @@ export class NppesService {
           );
         }
 
-        let parsed: RawNppesResponse;
+        let parsed: unknown;
         try {
-          parsed = JSON.parse(text) as RawNppesResponse;
+          parsed = JSON.parse(text);
         } catch (cause) {
           // Inside withRetry: a parse failure on a 200 may be a transient blip.
           throw serviceUnavailable('Failed to parse NPPES response as JSON.', undefined, {
@@ -169,10 +276,9 @@ export class NppesService {
           });
         }
 
-        if (parsed.Errors && parsed.Errors.length > 0) {
-          this.throwForErrors(parsed.Errors, ctx);
-        }
-        return parsed;
+        const validated = validateResults(parsed);
+        if ('errors' in validated) this.throwForErrors(validated.errors, ctx);
+        return validated.results;
       },
       {
         operation,
@@ -201,6 +307,10 @@ export class NppesService {
   /**
    * Search the registry. Returns compact summary rows for disambiguation.
    * The caller has already validated criteria and resolved any specialty term.
+   * A search with any location field also sends `address_purpose=LOCATION`:
+   * without it NPPES matches the location against mailing addresses too, and
+   * with it the match covers the primary practice address and every
+   * `practiceLocations[]` entry but never the mailing address.
    */
   async search(params: NppesSearchParams, ctx: Context): Promise<ProviderSummary[]> {
     const query: Record<string, string | number> = {
@@ -215,9 +325,10 @@ export class NppesService {
     if (params.city) query.city = params.city;
     if (params.state) query.state = params.state;
     if (params.postalCode) query.postal_code = params.postalCode;
+    if (params.city || params.state || params.postalCode) query.address_purpose = 'LOCATION';
 
-    const response = await this.call(query, ctx, 'nppes.search');
-    return (response.results ?? []).map((raw) => this.normalizeSummary(raw));
+    const results = await this.call(query, ctx, 'nppes.search');
+    return results.map((raw) => this.normalizeSummary(raw));
   }
 
   /**
@@ -225,52 +336,64 @@ export class NppesService {
    * NPI is well-formed but has no registry record (`result_count: 0`).
    */
   async getByNumber(npi: string, ctx: Context): Promise<ProviderRecord | null> {
-    const response = await this.call({ number: npi }, ctx, 'nppes.getByNumber');
-    const raw = (response.results ?? [])[0];
+    const [raw] = await this.call({ number: npi }, ctx, 'nppes.getByNumber');
     return raw ? this.normalizeRecord(raw) : null;
   }
 
-  /** Normalize a raw result into a compact summary row. */
+  /**
+   * Normalize a raw result into a compact summary row. City/state/ZIP come from
+   * the `LOCATION` (practice) address only — selected by purpose, since the
+   * registry's address order varies — and are absent when there is none. Each
+   * `practiceLocations[]` row contributes its city/state/ZIP in upstream order;
+   * no `MAILING` row ever reaches the summary.
+   */
   private normalizeSummary(raw: RawNppesResult): ProviderSummary {
-    const type = normalizeType(raw.enumeration_type);
-    const primaryAddress =
-      (raw.addresses ?? []).find((a) => trimmed(a.address_purpose)?.toUpperCase() === 'LOCATION') ??
-      (raw.addresses ?? [])[0];
+    const type = TYPE_BY_ENUMERATION[raw.enumeration_type];
     return {
-      npi: String(raw.number ?? ''),
+      npi: String(raw.number),
       type,
-      status: normalizeStatus(raw.basic?.status),
+      status: STATUS_BY_CODE[raw.basic.status],
       name: assembleName(raw, type),
-      ...field('credential', trimmed(raw.basic?.credential)),
+      ...field('credential', trimmed(raw.basic.credential)),
       ...field('primaryTaxonomy', pickPrimaryTaxonomy(raw)),
-      ...field('city', trimmed(primaryAddress?.city)),
-      ...field('state', trimmed(primaryAddress?.state)),
-      ...field('postalCode', trimmed(primaryAddress?.postal_code)),
+      ...cityStateZip((raw.addresses ?? []).find(isPracticeLocation)),
+      practiceLocations: (raw.practiceLocations ?? []).map(cityStateZip),
     };
   }
 
-  /** Normalize a raw result into a fully decoded provider record (curate-nothing fidelity). */
+  /**
+   * Normalize a raw result into a decoded provider record — every professional
+   * field the registry serves, renamed and normalized, never fabricated. The one
+   * deliberate omission: for anything not an organization (NPI-2), `addresses`
+   * keeps only `LOCATION` rows, so an individual's mailing address and phone (often
+   * a home) never leave the server. `practiceLocations` rows are practice data and
+   * pass through for both types.
+   */
   private normalizeRecord(raw: RawNppesResult): ProviderRecord {
-    const type = normalizeType(raw.enumeration_type);
-    const basic = raw.basic ?? {};
+    const type = TYPE_BY_ENUMERATION[raw.enumeration_type];
+    const basic = raw.basic;
 
     const authorizedOfficial =
       type === 'organization' ? this.normalizeAuthorizedOfficial(basic) : undefined;
+    const addresses =
+      type === 'organization'
+        ? (raw.addresses ?? [])
+        : (raw.addresses ?? []).filter(isPracticeLocation);
 
     const record: ProviderRecord = {
-      npi: String(raw.number ?? ''),
+      npi: String(raw.number),
       type,
-      status: normalizeStatus(basic.status),
+      status: STATUS_BY_CODE[basic.status],
       name: assembleName(raw, type),
       taxonomies: (raw.taxonomies ?? []).map((t) => ({
-        code: trimmed(t.code) ?? '',
+        code: t.code.trim(),
         ...field('description', trimmed(t.desc)),
         primary: t.primary === true,
         ...field('license', trimmed(t.license)),
         ...field('state', trimmed(t.state)),
         ...field('taxonomyGroup', trimmed(t.taxonomy_group)),
       })),
-      addresses: (raw.addresses ?? []).map((a) => this.normalizeAddress(a)),
+      addresses: addresses.map((a) => this.normalizeAddress(a)),
       practiceLocations: (raw.practiceLocations ?? []).map((a) => this.normalizeAddress(a)),
       identifiers: (raw.identifiers ?? [])
         .map((i) => ({ identifier: trimmed(i.identifier), raw: i }))
@@ -297,21 +420,27 @@ export class NppesService {
         .filter((x): x is { endpoint: string; raw: typeof x.raw } => x.endpoint !== undefined)
         .map(({ endpoint, raw: e }) => ({
           endpoint,
-          ...field('endpointType', trimmed(e.endpointType)),
-          ...field('endpointTypeDescription', trimmed(e.endpointTypeDescription)),
-          ...field('use', trimmed(e.use)),
-          ...field('useDescription', trimmed(e.useDescription)),
-          ...field('contentType', trimmed(e.contentType)),
-          ...field('contentTypeDescription', trimmed(e.contentTypeDescription)),
-          ...field('affiliation', trimmed(e.affiliation)),
-          ...field('affiliationName', trimmed(e.affiliationName)),
-          ...field('addressType', trimmed(e.address_type)),
-          ...field('line1', trimmed(e.address_1)),
-          ...field('city', trimmed(e.city)),
-          ...field('state', trimmed(e.state)),
-          ...field('postalCode', trimmed(e.postal_code)),
-          ...field('countryCode', trimmed(e.country_code)),
-          ...field('countryName', trimmed(e.country_name)),
+          ...presentFields({
+            endpointType: trimmed(e.endpointType),
+            endpointTypeDescription: trimmed(e.endpointTypeDescription),
+            endpointDescription: trimmed(e.endpointDescription),
+            use: trimmed(e.use),
+            useDescription: trimmed(e.useDescription),
+            useOtherDescription: trimmed(e.useOtherDescription),
+            contentType: trimmed(e.contentType),
+            contentTypeDescription: trimmed(e.contentTypeDescription),
+            contentOtherDescription: trimmed(e.contentOtherDescription),
+            affiliation: trimmed(e.affiliation),
+            affiliationName: trimmed(e.affiliationName),
+            addressType: trimmed(e.address_type),
+            line1: trimmed(e.address_1),
+            line2: trimmed(e.address_2),
+            city: trimmed(e.city),
+            state: trimmed(e.state),
+            postalCode: trimmed(e.postal_code),
+            countryCode: trimmed(e.country_code),
+            countryName: trimmed(e.country_name),
+          }),
         })),
     };
 
@@ -352,7 +481,7 @@ export class NppesService {
     return record;
   }
 
-  private normalizeAuthorizedOfficial(basic: NonNullable<RawNppesResult['basic']>) {
+  private normalizeAuthorizedOfficial(basic: RawNppesBasic) {
     const firstName = trimmed(basic.authorized_official_first_name);
     const lastName = trimmed(basic.authorized_official_last_name);
     const middleName = trimmed(basic.authorized_official_middle_name);
@@ -375,7 +504,7 @@ export class NppesService {
     };
   }
 
-  private normalizeAddress(a: NonNullable<RawNppesResult['addresses']>[number]) {
+  private normalizeAddress(a: RawNppesAddress) {
     return {
       ...field('purpose', trimmed(a.address_purpose)),
       ...field('addressType', trimmed(a.address_type)),

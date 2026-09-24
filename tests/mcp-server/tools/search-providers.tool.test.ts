@@ -5,7 +5,8 @@
  * @module tests/mcp-server/tools/search-providers.tool.test
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import type { z } from '@cyanheads/mcp-ts-core';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { searchProvidersTool } from '@/mcp-server/tools/definitions/search-providers.tool.js';
 import { initNppesService } from '@/services/nppes/nppes-service.js';
@@ -430,5 +431,268 @@ describe('searchProvidersTool', () => {
     });
     const text = blocks.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     expect(text).toContain('Seattle, WA 98101');
+  });
+});
+
+// ── #18: location post-filter over every professional location ──────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/18
+
+describe('searchProvidersTool location matching across practice locations (#18)', () => {
+  /** Answer registry requests with one page of `results`; any other URL rejects as unmocked. */
+  function stubRegistryPage(results: unknown[]): ReturnType<typeof vi.fn> {
+    const fetchSpy = vi.fn(async (input: string | URL | Request) => {
+      if (new URL(String(input)).origin !== 'https://npiregistry.cms.hhs.gov') {
+        throw new Error('unmocked fetch');
+      }
+      return new Response(JSON.stringify({ result_count: results.length, results }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  }
+
+  /** Run the tool through its public contract: handler, output parse, format, enrichment. */
+  async function run(input: z.input<typeof searchProvidersTool.input>) {
+    const result = await runToolContract(searchProvidersTool, input);
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as {
+      providers: Record<string, unknown>[];
+      notice?: string;
+      shown?: number;
+      truncated?: boolean;
+    };
+    const text = result.content
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    return { structured, text };
+  }
+
+  // Primary LOCATION in St. Louis, a Seattle mailing address, and a Seattle practice location.
+  const SECONDARY_SEATTLE = {
+    number: 1679937908,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'ALEX', last_name: 'SURGEON', credential: 'MD', status: 'A' },
+    taxonomies: [{ code: '207T00000X', desc: 'Neurological Surgery', primary: true }],
+    addresses: [
+      { address_purpose: 'LOCATION', city: 'SAINT LOUIS', state: 'MO', postal_code: '631041016' },
+      { address_purpose: 'MAILING', city: 'SEATTLE', state: 'WA', postal_code: '981956410' },
+    ],
+    practiceLocations: [
+      {
+        address_purpose: 'LOCATION',
+        address_1: '1959 NE PACIFIC ST',
+        city: 'SEATTLE',
+        state: 'WA',
+        postal_code: '981956410',
+      },
+    ],
+  };
+
+  // Primary LOCATION in Seattle, plus a practice location elsewhere.
+  const PRIMARY_SEATTLE = {
+    number: 1720034424,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'JOSEPH', last_name: 'ABATE', credential: 'MD', status: 'A' },
+    taxonomies: [
+      { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease', primary: true },
+    ],
+    addresses: [
+      { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '981012345' },
+    ],
+    practiceLocations: [
+      { address_purpose: 'LOCATION', city: 'BELLEVUE', state: 'WA', postal_code: '980040000' },
+    ],
+  };
+
+  // Seattle only on the MAILING row: the registry returns it, the server must not.
+  const MAILING_ONLY_SEATTLE = {
+    number: 1234567893,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'MAIL', last_name: 'ONLY', status: 'A' },
+    taxonomies: [{ code: '207R00000X', desc: 'Internal Medicine', primary: true }],
+    addresses: [
+      { address_purpose: 'MAILING', city: 'SEATTLE', state: 'WA', postal_code: '981010000' },
+      { address_purpose: 'LOCATION', city: 'PORTLAND', state: 'OR', postal_code: '972010000' },
+    ],
+    practiceLocations: [],
+  };
+
+  // Several practice locations; only the second is in Seattle.
+  const SECOND_PRACTICE_SEATTLE = {
+    number: 1174905814,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'MULTI', last_name: 'SITE', status: 'A' },
+    taxonomies: [{ code: '207Q00000X', desc: 'Family Medicine', primary: true }],
+    addresses: [
+      { address_purpose: 'LOCATION', city: 'SPOKANE', state: 'WA', postal_code: '992010000' },
+    ],
+    practiceLocations: [
+      { address_purpose: 'LOCATION', city: 'TACOMA', state: 'WA', postal_code: '984020000' },
+      { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '981040000' },
+      { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '981090000' },
+    ],
+  };
+
+  it('keeps a row whose primary LOCATION matches, without a matchedLocation (characterization)', async () => {
+    stubRegistryPage([PRIMARY_SEATTLE]);
+    const { structured, text } = await run({ city: 'Seattle', state: 'WA', limit: 10 });
+    expect(structured.providers).toEqual([
+      {
+        npi: '1720034424',
+        type: 'individual',
+        name: 'JOSEPH ABATE',
+        credential: 'MD',
+        primaryTaxonomy: {
+          code: '207RC0000X',
+          description: 'Internal Medicine, Cardiovascular Disease',
+        },
+        city: 'SEATTLE',
+        state: 'WA',
+        postalCode: '981012345',
+        status: 'active',
+      },
+    ]);
+    expect(structured.notice).toBeUndefined();
+    expect(text).toContain('**Location:** SEATTLE, WA 981012345');
+    expect(text).not.toContain('BELLEVUE');
+  });
+
+  it('drops a row that matches only on its MAILING address (characterization)', async () => {
+    stubRegistryPage([PRIMARY_SEATTLE, MAILING_ONLY_SEATTLE]);
+    const { structured, text } = await run({ city: 'Seattle', state: 'WA', limit: 10 });
+    expect(structured.providers.map((p) => p.npi)).toEqual(['1720034424']);
+    expect(structured.notice).toMatch(/1 out-of-location row/i);
+    expect(text).not.toContain('1234567893');
+    expect(text).not.toContain('981010000');
+  });
+
+  it('drops a row whose requested city and ZIP match two different locations (characterization)', async () => {
+    // City SEATTLE is only on the primary LOCATION; ZIP 98004 is only on the practice location.
+    stubRegistryPage([PRIMARY_SEATTLE]);
+    const { structured, text } = await run({ city: 'Seattle', postal_code: '98004', limit: 10 });
+    expect(structured.providers).toEqual([]);
+    expect(structured.notice).toMatch(/none were in the requested location/i);
+    expect(text).toContain('No providers matched.');
+  });
+
+  it('does not filter or add a matchedLocation when no location is requested (characterization)', async () => {
+    stubRegistryPage([SECONDARY_SEATTLE, MAILING_ONLY_SEATTLE]);
+    const { structured } = await run({ last_name: 'SURGEON', limit: 10 });
+    expect(structured.providers.map((p) => p.npi)).toEqual(['1679937908', '1234567893']);
+    for (const row of structured.providers) {
+      expect(row).not.toHaveProperty('matchedLocation');
+      expect(row).not.toHaveProperty('practiceLocations');
+    }
+    expect(structured.notice).toBeUndefined();
+  });
+
+  it('reports an empty upstream page for a location search with the broaden notice (characterization)', async () => {
+    stubRegistryPage([]);
+    const { structured, text } = await run({ city: 'Seattle', state: 'WA', limit: 10 });
+    expect(structured.providers).toEqual([]);
+    expect(structured.notice).toMatch(/No providers matched/);
+    expect(structured.notice).not.toMatch(/requested location/i);
+    expect(text).toContain('No providers matched.');
+  });
+
+  it('keeps a row that matches only on a secondary practice location and shows that location', async () => {
+    stubRegistryPage([SECONDARY_SEATTLE]);
+    const { structured, text } = await run({
+      city: 'SEATTLE',
+      state: 'WA',
+      provider_type: 'individual',
+      limit: 10,
+    });
+    expect(structured.providers).toEqual([
+      {
+        npi: '1679937908',
+        type: 'individual',
+        name: 'ALEX SURGEON',
+        credential: 'MD',
+        primaryTaxonomy: { code: '207T00000X', description: 'Neurological Surgery' },
+        // city/state/postalCode keep their meaning: the primary LOCATION address.
+        city: 'SAINT LOUIS',
+        state: 'MO',
+        postalCode: '631041016',
+        matchedLocation: { city: 'SEATTLE', state: 'WA', postalCode: '981956410' },
+        status: 'active',
+      },
+    ]);
+    expect(structured.notice).toBeUndefined();
+    expect(text).toContain('**Location:** SAINT LOUIS, MO 631041016');
+    expect(text).toContain('**Matched practice location:** SEATTLE, WA 981956410');
+  });
+
+  it('matches the second of several practice locations and reports that one', async () => {
+    stubRegistryPage([SECOND_PRACTICE_SEATTLE]);
+    const { structured, text } = await run({ city: 'seattle', state: 'WA', limit: 10 });
+    expect(structured.providers).toHaveLength(1);
+    expect(structured.providers[0]).toMatchObject({
+      npi: '1174905814',
+      city: 'SPOKANE',
+      matchedLocation: { city: 'SEATTLE', state: 'WA', postalCode: '981040000' },
+    });
+    expect(text).toContain('**Matched practice location:** SEATTLE, WA 981040000');
+    expect(text).not.toContain('TACOMA');
+  });
+
+  it('matches a postal_code prefix against a secondary practice location', async () => {
+    stubRegistryPage([SECONDARY_SEATTLE, MAILING_ONLY_SEATTLE]);
+    const { structured, text } = await run({ postal_code: '98195', limit: 10 });
+    expect(structured.providers.map((p) => p.npi)).toEqual(['1679937908']);
+    expect(structured.providers[0]?.matchedLocation).toEqual({
+      city: 'SEATTLE',
+      state: 'WA',
+      postalCode: '981956410',
+    });
+    expect(text).toContain('**Matched practice location:** SEATTLE, WA 981956410');
+  });
+
+  it('keeps primary and secondary matches, drops mailing-only, and keys truncation on the raw page', async () => {
+    stubRegistryPage([SECONDARY_SEATTLE, MAILING_ONLY_SEATTLE, PRIMARY_SEATTLE]);
+    const { structured } = await run({ city: 'Seattle', state: 'WA', limit: 3 });
+    expect(structured.providers.map((p) => p.npi)).toEqual(['1679937908', '1720034424']);
+    expect(structured.truncated).toBe(true);
+    expect(structured.shown).toBe(2);
+    expect(structured.notice).toMatch(/1 out-of-location row/i);
+    expect(structured.notice).toMatch(/1200/);
+  });
+
+  it('describes why a row was dropped by practice location, blaming neither specialty nor mailing matches', async () => {
+    // Upstream now matches practice addresses only (#19); a dropped row is one whose
+    // practice locations don't satisfy every requested field on the same location.
+    stubRegistryPage([PRIMARY_SEATTLE, MAILING_ONLY_SEATTLE]);
+    const kept = await run({ city: 'Seattle', state: 'WA', limit: 10 });
+    expect(kept.structured.notice).toMatch(/practice location matches every requested/i);
+    expect(kept.structured.notice).not.toMatch(/specialty|mailing/i);
+
+    stubRegistryPage([MAILING_ONLY_SEATTLE]);
+    const none = await run({ city: 'Seattle', state: 'WA', limit: 10 });
+    expect(none.structured.notice).toMatch(/none were in the requested location/i);
+    expect(none.structured.notice).toMatch(/practice location matches every requested/i);
+    expect(none.structured.notice).not.toMatch(/specialty|mailing/i);
+    expect(none.text).toMatch(/practice location matches every requested/i);
+  });
+
+  it('format: renders a matched practice location alongside the primary location', () => {
+    const text = searchProvidersTool.format!({
+      providers: [
+        {
+          npi: '1679937908',
+          type: 'individual',
+          name: 'ALEX SURGEON',
+          city: 'SAINT LOUIS',
+          state: 'MO',
+          matchedLocation: { city: 'SEATTLE', state: 'WA' },
+          status: 'active',
+        },
+      ],
+    })
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain('**Location:** SAINT LOUIS, MO');
+    expect(text).toContain('**Matched practice location:** SEATTLE, WA');
   });
 });

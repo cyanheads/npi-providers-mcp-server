@@ -29,21 +29,21 @@
 
 ## Overview
 
-US healthcare provider directory over the NPPES NPI Registry, with plain-language specialty terms resolved offline against a bundled NUCC taxonomy. Search providers by name, organization, location, and specialty; decode NPIs into full provider records; and resolve or browse the NUCC taxonomy directly. Runs as a stdio process, a local Streamable HTTP server, or the public hosted endpoint above.
+US healthcare provider directory over the NPPES NPI Registry, with plain-language specialty terms resolved offline against a bundled NUCC taxonomy. Search providers by name, organization, location, and specialty; decode NPIs into professional-practice provider records; and resolve or browse the NUCC taxonomy directly. Runs as a stdio process, a local Streamable HTTP server, or the public hosted endpoint above.
 
 ### Tools
 
 | Tool | Description |
 |:---|:---|
 | `npi_search_providers` | Search the NPPES registry by name, organization, location, provider type, and specialty. Plain-language specialties resolve through the bundled NUCC taxonomy before searching. |
-| `npi_get_provider` | Fetch the complete NPPES record for up to 10 NPIs — taxonomies, addresses, credentials, identifiers, endpoints, and status. |
+| `npi_get_provider` | Fetch the NPPES professional-practice record for up to 10 NPIs — taxonomies, practice addresses, credentials, identifiers, endpoints, and status. Only LOCATION address rows are kept for individual providers. |
 | `npi_lookup_taxonomy` | Resolve, fetch, or browse the NUCC Healthcare Provider Taxonomy — fully offline. |
 
 ### Resources
 
 | Resource | Description |
 |:---|:---|
-| `npi://provider/{npi}` | A single provider's full decoded record by NPI — the resource twin of `npi_get_provider`. |
+| `npi://provider/{npi}` | A single provider's decoded record by NPI — the resource twin of `npi_get_provider`. |
 | `npi://taxonomy/{code}` | A single NUCC taxonomy entry by code — the resource twin of `npi_lookup_taxonomy` mode `get`. |
 
 All resource data is also reachable via tools; the resources are convenience twins for resource-capable clients.
@@ -55,6 +55,7 @@ All resource data is also reachable via tools; the resources are convenience twi
 - Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`); at least one criterion is required and the registry rejects state-only searches
 - Plain-language `specialty` resolves through the bundled NUCC taxonomy to the registry's exact description before searching, echoed back via `resolvedTaxonomies` / `appliedTaxonomyDescription`; `taxonomy_description` is an escape hatch for an already-known exact description (mutually exclusive with `specialty`)
 - Trailing-wildcard (`*`) name/organization matching requires at least 2 leading characters
+- Each row's `city` / `state` / `postalCode` is the primary practice location. A location search matches practice addresses only, never mailing addresses: a row is returned only when the primary practice location or another practice location matches every requested location field (any other row the registry returns is filtered out, with a `notice` counting it), and a row kept on another practice location names it in `matchedLocation`
 - `limit` 1–200 (default 10), `skip` 0–1000; the registry never reports a true match total, only the first 1200 matches are reachable, and the response discloses page-size-not-total via `truncated` / `notice`
 - Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `unresolved_specialty`, `invalid_search_field`
 
@@ -62,10 +63,11 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 ### `npi_get_provider` <sub>tool</sub>
 
-- Accepts a single NPI or up to 10; each is validated as exactly 10 digits before any API call
-- Returns every taxonomy (with primary flag, license number and state), all practice and mailing addresses, credential, sex, sole-proprietor flag, enumeration and last-updated dates, secondary identifiers, and FHIR/Direct endpoints
-- Three-way partition: `found` (resolved records), `notFound` (confirmed absence — deactivated or never enumerated), `errored` (upstream failure, distinct from absence — retry these)
-- Throws `none_found` only when every requested NPI is a confirmed absence; an upstream failure on any NPI surfaces as that underlying error instead
+- Accepts a single NPI or up to 10; each must be exactly 10 digits, and each is checked against its NPI check digit before any API call
+- Returns every taxonomy (with primary flag, license number and state), practice addresses with phone and fax, credential, sex, sole-proprietor flag, enumeration and last-updated dates, secondary identifiers, and FHIR/Direct endpoints (with their descriptions and routing address)
+- Only LOCATION (practice) address rows are kept for individual providers, so their mailing address — often a home address — is withheld; organizations keep both LOCATION and MAILING rows
+- Four-way partition: `found` (resolved records), `notFound` (confirmed absence — deactivated or never enumerated), `errored` (upstream failure, distinct from absence — retry these), `invalid` (failed the NPI check digit — never looked up)
+- Throws `invalid_npi_format` when every requested NPI fails the check digit, and `none_found` only when every NPI looked up is a confirmed absence; an upstream failure on any NPI surfaces as that underlying error instead
 
 ---
 
@@ -80,8 +82,8 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 ### `npi://provider/{npi}` <sub>resource</sub>
 
-- Returns the same fully decoded record as `npi_get_provider`, for one NPI, as `application/json`
-- `npi` must be a well-formed 10-digit NPI; `no_record` when the registry has none (deactivated or never enumerated)
+- Returns the same decoded record as `npi_get_provider`, for one NPI, as `application/json` — only LOCATION address rows are kept for individual providers
+- `npi` must be a well-formed 10-digit NPI; `invalid_npi_format` when it fails the NPI check digit (no registry request), `no_record` when the registry has none (deactivated or never enumerated)
 
 ---
 
@@ -105,7 +107,7 @@ Agent-friendly output:
 
 - Provenance on search — the resolved taxonomy and the exact `taxonomy_description` sent to the registry are echoed back, so agents can see what was actually searched and re-run with a different code
 - Honest pagination — the returned count is disclosed as the page size, never a fabricated grand total, with the 1200-match reachable ceiling surfaced when a broad query is capped
-- Graceful partial failure — `npi_get_provider` returns per-NPI `found` / `notFound` / `errored` rows instead of failing the whole batch
+- Graceful partial failure — `npi_get_provider` returns per-NPI `found` / `notFound` / `errored` / `invalid` rows instead of failing the whole batch
 
 ## Getting started
 

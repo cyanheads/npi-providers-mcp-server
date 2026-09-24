@@ -16,11 +16,11 @@
 US healthcare provider directory over the live, **keyless** NPPES NPI Registry API (v2.1), plus a **bundled NUCC Healthcare Provider Taxonomy** code set (879 codes, v25.0) for offline specialty resolution. Three tools, two resources, no prompts:
 
 - `npi_search_providers` — search by name, organization, location, provider type, and specialty; plain-language specialties resolve through the bundled taxonomy before searching.
-- `npi_get_provider` — decode up to 10 NPIs to full records, fanning out one call per NPI with partial-success reporting.
+- `npi_get_provider` — decode up to 10 NPIs to their professional-practice records (only LOCATION address rows are kept for individual providers), checking each NPI's check digit and fanning out one call per valid NPI with partial-success reporting.
 - `npi_lookup_taxonomy` — offline NUCC resolver: `resolve` / `get` / `browse`.
 - `npi://provider/{npi}` and `npi://taxonomy/{code}` — read-only resource twins of the get/lookup tools.
 
-Two services: `nppes` (live HTTP, detects the registry's HTTP-200-with-`Errors[]` validation envelope and maps it to typed contract reasons) and `taxonomy` (in-memory NUCC index loaded at startup). No API key — `MCP_AUTH_MODE=none`, no `auth` scopes; all tools are read-only over public professional-practice data.
+Two services: `nppes` (live HTTP, detects the registry's HTTP-200-with-`Errors[]` validation envelope and maps it to typed contract reasons; a structurally malformed body is retried, then surfaces as `ServiceUnavailable`) and `taxonomy` (in-memory NUCC index loaded at startup). No API key — `MCP_AUTH_MODE=none`, no `auth` scopes; all tools are read-only over public professional-practice data.
 
 ---
 
@@ -238,6 +238,7 @@ src/
       types.ts                                # TaxonomyEntry / TaxonomySection
       data/nucc_taxonomy_250.csv              # Source CSV (v25.0); regenerate taxonomy-data.ts from it
   mcp-server/
+    npi-check-digit.ts                        # NPI check digit (Luhn over 80840 + NPI) — shared by the NPI tool and resource
     tools/definitions/
       search-providers.tool.ts                # npi_search_providers
       get-provider.tool.ts                    # npi_get_provider
@@ -402,7 +403,7 @@ import { getMyService } from '@/services/my-domain/my-service.js';
 - [ ] NPPES service detects the HTTP-200-with-`Errors[]` validation envelope and throws a typed contract reason (never returns an empty result set as "no providers")
 - [ ] Pagination honesty — output discloses page-size-not-total and the 1200-match reachable ceiling; never fabricate a grand total
 - [ ] Specialty resolution echoes the matched taxonomy (code + description) back to the caller
-- [ ] Taxonomy code format `^\d{3}[A-Z0-9]{6}X$`; NPI format `^\d{10}$` — validated in schema before any API call
+- [ ] Taxonomy code format `^\d{3}[A-Z0-9]{6}X$`; NPI format `^\d{10}$` — validated in schema before any API call; the NPI check digit is verified in the `npi_get_provider` / `npi://provider/{npi}` handlers (never the service) before any API call
 - [ ] Zod schemas: all fields have `.describe()`, only JSON-Schema-serializable types (no `z.custom()`, `z.date()`, `z.transform()`, `z.bigint()`, `z.symbol()`, `z.void()`, `z.map()`, `z.set()`, `z.function()`, `z.nan()`)
 - [ ] Optional nested objects: handler guards for empty inner values from form-based clients (`if (input.obj?.field && ...)`, not just `if (input.obj)`). When regex/length constraints matter, use `z.union([z.literal(''), z.string().regex(...).describe(...)])` — literal variants are exempt from `describe-on-fields`.
 - [ ] JSDoc `@fileoverview` + `@module` on every file

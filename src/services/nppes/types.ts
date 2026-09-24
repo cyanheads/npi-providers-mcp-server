@@ -5,8 +5,9 @@
  * Raw types mirror the live API response shape (probed against the registry).
  * Upstream is sparse — `license`, `state`, `middle_name`, `credential`,
  * `telephone_number`, and the `identifiers`/`endpoints`/`practiceLocations` arrays
- * are frequently null or empty. Raw fields default to optional unless presence is
- * guaranteed; normalization preserves absence rather than fabricating defaults.
+ * are frequently null or empty. Raw fields default to optional unless the service
+ * validates their presence (the identity fields on `RawNppesResult`, a taxonomy's
+ * `code`); normalization preserves absence rather than fabricating defaults.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,9 +51,9 @@ export interface RawNppesBasic {
   status?: string;
 }
 
-/** Raw `taxonomies[]` element. */
+/** Raw `taxonomies[]` element. The service validates `code` as a non-blank string. */
 export interface RawNppesTaxonomy {
-  code?: string;
+  code: string;
   desc?: string;
   license?: string | null;
   primary?: boolean;
@@ -101,47 +102,56 @@ export interface RawNppesOtherName {
  * Raw `endpoints[]` element (FHIR / Direct messaging endpoints). Live responses
  * carry an endpoint-specific address block plus routing/context fields
  * (`address_type`, `affiliationName`, `contentTypeDescription`, `country_name`,
- * `useDescription`) not present on the older probed shape.
+ * `useDescription`) and free-text descriptions (`endpointDescription`, and
+ * `useOtherDescription` / `contentOtherDescription` explaining a `use` or
+ * `contentType` of `OTHER`) not present on the older probed shape.
  */
 export interface RawNppesEndpoint {
   address_1?: string;
+  address_2?: string;
   address_type?: string;
   affiliation?: string;
   affiliationName?: string;
   city?: string;
+  contentOtherDescription?: string;
   contentType?: string;
   contentTypeDescription?: string;
   country_code?: string;
   country_name?: string;
   endpoint?: string;
+  endpointDescription?: string;
   endpointType?: string;
   endpointTypeDescription?: string;
   postal_code?: string;
   state?: string;
   use?: string;
   useDescription?: string;
+  useOtherDescription?: string;
 }
 
-/** Raw `results[]` element. */
+/** Raw `enumeration_type` values the registry serves: individual vs organization. */
+export type RawEnumerationType = 'NPI-1' | 'NPI-2';
+
+/** Raw `basic.status` values: `A` active, `D` deactivated. */
+export type RawStatusCode = 'A' | 'D';
+
+/**
+ * Raw `results[]` element whose identity fields the service has validated: a
+ * 10-digit `number`, a known `enumeration_type`, and a `basic` block with a known
+ * `status`. The six array fields are arrays of objects, `null`, or absent.
+ */
 export interface RawNppesResult {
-  addresses?: RawNppesAddress[];
-  basic?: RawNppesBasic;
+  addresses?: RawNppesAddress[] | null;
+  basic: RawNppesBasic & { status: RawStatusCode };
   created_epoch?: number | string;
-  endpoints?: RawNppesEndpoint[];
-  enumeration_type?: string;
-  identifiers?: RawNppesIdentifier[];
+  endpoints?: RawNppesEndpoint[] | null;
+  enumeration_type: RawEnumerationType;
+  identifiers?: RawNppesIdentifier[] | null;
   last_updated_epoch?: number | string;
-  number?: number | string;
-  other_names?: RawNppesOtherName[];
-  practiceLocations?: RawNppesAddress[];
-  taxonomies?: RawNppesTaxonomy[];
-}
-
-/** Top-level raw API response. Either `results` (and `result_count`) or `Errors`. */
-export interface RawNppesResponse {
-  Errors?: RawNppesError[];
-  result_count?: number;
-  results?: RawNppesResult[];
+  number: number | string;
+  other_names?: RawNppesOtherName[] | null;
+  practiceLocations?: RawNppesAddress[] | null;
+  taxonomies?: RawNppesTaxonomy[] | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +161,7 @@ export interface RawNppesResponse {
 /** Provider enumeration type, normalized from `enumeration_type`. */
 export type ProviderType = 'individual' | 'organization';
 
-/** Normalized provider status. `A` (active) maps to `active`; anything else to `deactivated`. */
+/** Normalized provider status: `A` maps to `active`, `D` to `deactivated`. */
 export type ProviderStatus = 'active' | 'deactivated';
 
 /** A normalized taxonomy on a provider record. */
@@ -206,18 +216,22 @@ export interface ProviderEndpoint {
   affiliation?: string;
   affiliationName?: string;
   city?: string;
+  contentOtherDescription?: string;
   contentType?: string;
   contentTypeDescription?: string;
   countryCode?: string;
   countryName?: string;
   endpoint: string;
+  endpointDescription?: string;
   endpointType?: string;
   endpointTypeDescription?: string;
   line1?: string;
+  line2?: string;
   postalCode?: string;
   state?: string;
   use?: string;
   useDescription?: string;
+  useOtherDescription?: string;
 }
 
 /** The authorized-official block for organization (NPI-2) records. */
@@ -232,8 +246,12 @@ export interface AuthorizedOfficial {
   title?: string;
 }
 
-/** A fully decoded NPPES provider record. */
+/**
+ * A decoded NPPES provider record: the registry's professional-practice data,
+ * with an individual's (NPI-1) non-practice address rows withheld from `addresses`.
+ */
 export interface ProviderRecord {
+  /** Organizations: every row. Individuals: `LOCATION` (practice) rows only. */
   addresses: ProviderAddress[];
   authorizedOfficial?: AuthorizedOfficial;
   certificationDate?: string;
@@ -265,15 +283,24 @@ export interface ProviderRecord {
   type: ProviderType;
 }
 
-/** A compact provider row for search disambiguation. */
-export interface ProviderSummary {
+/** The city/state/ZIP of one professional location. */
+export interface ProviderLocation {
   city?: string;
+  postalCode?: string;
+  state?: string;
+}
+
+/**
+ * A compact provider row for search disambiguation. `city`/`state`/`postalCode`
+ * come from the primary `LOCATION` address; `practiceLocations` carries each
+ * secondary practice location, so a location search can match either.
+ */
+export interface ProviderSummary extends ProviderLocation {
   credential?: string;
   name: string;
   npi: string;
-  postalCode?: string;
+  practiceLocations: ProviderLocation[];
   primaryTaxonomy?: { code: string; description?: string };
-  state?: string;
   status: ProviderStatus;
   type: ProviderType;
 }

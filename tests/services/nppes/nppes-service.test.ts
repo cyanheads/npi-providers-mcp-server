@@ -5,7 +5,7 @@
  * @module tests/services/nppes/nppes-service.test
  */
 
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NppesService } from '@/services/nppes/nppes-service.js';
@@ -13,21 +13,31 @@ import { NppesService } from '@/services/nppes/nppes-service.js';
 const svc = new NppesService('https://npiregistry.cms.hhs.gov/api', 15000);
 const ctx = createMockContext();
 
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+/**
+ * Stub global fetch to answer one call per body, in order, as HTTP 200. Any call
+ * beyond the primed bodies rejects, so no test can reach the live registry.
+ */
+function primeFetch(...bodies: unknown[]): ReturnType<typeof vi.fn> {
+  const fetchSpy = vi.fn().mockRejectedValue(new Error('unmocked fetch'));
+  for (const body of bodies) fetchSpy.mockResolvedValueOnce(jsonResponse(body));
+  vi.stubGlobal('fetch', fetchSpy);
+  return fetchSpy;
+}
+
 /** Stub global fetch to return a single JSON body as an HTTP 200. */
-function stubJson(body: unknown): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(
-      async () =>
-        new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-    ),
-  );
+function stubJson(body: unknown): ReturnType<typeof vi.fn> {
+  return primeFetch(body);
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -159,7 +169,7 @@ describe('NppesService.getByNumber', () => {
       result_count: 1,
       results: [
         {
-          number: 1,
+          number: 1111111111,
           enumeration_type: 'NPI-1',
           basic: { last_name: 'X', status: 'D' },
           taxonomies: [],
@@ -173,6 +183,127 @@ describe('NppesService.getByNumber', () => {
   it('returns null when the NPI has no record (result_count 0)', async () => {
     stubJson({ result_count: 0, results: [] });
     expect(await svc.getByNumber('1234567893', ctx)).toBeNull();
+  });
+
+  it('labels an identity-only record by its NPI and treats null arrays as empty', async () => {
+    const fetchSpy = stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1720034424',
+          enumeration_type: 'NPI-1',
+          basic: { status: 'A' },
+          taxonomies: null,
+          addresses: null,
+          practiceLocations: null,
+          identifiers: null,
+          other_names: null,
+          endpoints: null,
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec).toEqual({
+      npi: '1720034424',
+      type: 'individual',
+      status: 'active',
+      name: 'NPI 1720034424',
+      taxonomies: [],
+      addresses: [],
+      practiceLocations: [],
+      identifiers: [],
+      otherNames: [],
+      endpoints: [],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps both MAILING and LOCATION rows, in upstream order, on an organization record (#14)', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1234567893,
+          enumeration_type: 'NPI-2',
+          basic: { organization_name: 'SEATTLE CLINIC LLC', status: 'A' },
+          addresses: [
+            {
+              address_purpose: 'MAILING',
+              address_1: 'PO BOX 100',
+              city: 'TACOMA',
+              state: 'WA',
+              telephone_number: '253-555-0100',
+            },
+            {
+              address_purpose: 'LOCATION',
+              address_1: '500 CLINIC AVE',
+              city: 'SEATTLE',
+              state: 'WA',
+              telephone_number: '206-555-0102',
+            },
+          ],
+          practiceLocations: [
+            { address_purpose: 'LOCATION', address_1: '600 SATELLITE WAY', city: 'BELLEVUE' },
+          ],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1234567893', ctx);
+    expect(rec?.addresses).toEqual([
+      {
+        purpose: 'MAILING',
+        line1: 'PO BOX 100',
+        city: 'TACOMA',
+        state: 'WA',
+        telephoneNumber: '253-555-0100',
+      },
+      {
+        purpose: 'LOCATION',
+        line1: '500 CLINIC AVE',
+        city: 'SEATTLE',
+        state: 'WA',
+        telephoneNumber: '206-555-0102',
+      },
+    ]);
+    expect(rec?.practiceLocations).toEqual([
+      { purpose: 'LOCATION', line1: '600 SATELLITE WAY', city: 'BELLEVUE' },
+    ]);
+  });
+
+  it('normalizes every practiceLocations row on an individual record', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: 1720034424,
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'JOSEPH', last_name: 'ABATE', status: 'A' },
+          practiceLocations: [
+            {
+              address_purpose: 'LOCATION',
+              address_1: '600 SATELLITE WAY',
+              address_2: 'SUITE 3',
+              city: 'BELLEVUE',
+              state: 'WA',
+              telephone_number: '425-555-0100',
+            },
+            { address_purpose: 'LOCATION', address_1: '700 OUTREACH ROAD', city: 'TACOMA' },
+          ],
+        },
+      ],
+    });
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec?.practiceLocations).toEqual([
+      {
+        purpose: 'LOCATION',
+        line1: '600 SATELLITE WAY',
+        line2: 'SUITE 3',
+        city: 'BELLEVUE',
+        state: 'WA',
+        telephoneNumber: '425-555-0100',
+      },
+      { purpose: 'LOCATION', line1: '700 OUTREACH ROAD', city: 'TACOMA' },
+    ]);
   });
 
   it('normalizes an organization record with an authorized official', async () => {
@@ -302,18 +433,35 @@ describe('NppesService.getByNumber', () => {
               endpoint: 'KatherineAbelPA@fpc.medentdirect.com',
               endpointType: 'DIRECT',
               endpointTypeDescription: 'Direct Messaging Address',
+              endpointDescription: 'Carequality',
               use: 'HIE',
               useDescription: 'Health Information Exchange (HIE)',
               contentTypeDescription: '',
+              contentOtherDescription: 'C-CDA',
               affiliation: 'Y',
               affiliationName: 'FAMILY PRACTICE CENTER, PC',
               address_1: '225 N Front St',
+              address_2: 'Suite 100',
               address_type: 'DOM',
               city: 'Steelton',
               state: 'PA',
               postal_code: '171132240',
               country_code: 'US',
               country_name: 'United States',
+            },
+            {
+              endpoint: 'esmd@example.test',
+              endpointType: 'DIRECT',
+              use: 'OTHER',
+              useDescription: 'Other',
+              useOtherDescription: 'CMS esMD eMDR',
+            },
+            {
+              endpoint: 'https://example.test/fhir',
+              endpointType: 'FHIR',
+              endpointDescription: '',
+              useOtherDescription: '  ',
+              address_1: '1 Plain St',
             },
           ],
         },
@@ -334,8 +482,11 @@ describe('NppesService.getByNumber', () => {
     expect(rec?.endpoints[0]).toMatchObject({
       endpoint: 'KatherineAbelPA@fpc.medentdirect.com',
       endpointType: 'DIRECT',
+      endpointDescription: 'Carequality',
       use: 'HIE',
       useDescription: 'Health Information Exchange (HIE)',
+      contentOtherDescription: 'C-CDA',
+      line2: 'Suite 100',
       affiliation: 'Y',
       affiliationName: 'FAMILY PRACTICE CENTER, PC',
       addressType: 'DOM',
@@ -348,6 +499,19 @@ describe('NppesService.getByNumber', () => {
     });
     // Empty contentTypeDescription is preserved as absence, never an empty string.
     expect(rec?.endpoints[0]?.contentTypeDescription).toBeUndefined();
+    expect(rec?.endpoints[1]).toEqual({
+      endpoint: 'esmd@example.test',
+      endpointType: 'DIRECT',
+      use: 'OTHER',
+      useDescription: 'Other',
+      useOtherDescription: 'CMS esMD eMDR',
+    });
+    // An endpoint without the description/second-line fields carries no such keys.
+    expect(rec?.endpoints[2]).toEqual({
+      endpoint: 'https://example.test/fhir',
+      endpointType: 'FHIR',
+      line1: '1 Plain St',
+    });
   });
 
   it('decodes authorized-official name prefix/suffix and reuses the "--" guard (#6/#9)', async () => {
@@ -376,13 +540,250 @@ describe('NppesService.getByNumber', () => {
   });
 });
 
+describe('NppesService individual mailing-address withholding (#14)', () => {
+  const MAILING = {
+    address_purpose: 'MAILING',
+    address_type: 'DOM',
+    address_1: '123 PRIVATE HOME LANE',
+    address_2: 'APT 4',
+    city: 'SEATTLE',
+    state: 'WA',
+    postal_code: '981010000',
+    telephone_number: '206-555-0101',
+    fax_number: '206-555-0109',
+  };
+  const LOCATION = {
+    address_purpose: 'LOCATION',
+    address_type: 'DOM',
+    address_1: '500 CLINIC AVE',
+    city: 'SEATTLE',
+    state: 'WA',
+    postal_code: '981020000',
+    telephone_number: '206-555-0102',
+    fax_number: '206-555-0103',
+  };
+  const LOCATION_ROW = {
+    purpose: 'LOCATION',
+    addressType: 'DOM',
+    line1: '500 CLINIC AVE',
+    city: 'SEATTLE',
+    state: 'WA',
+    postalCode: '981020000',
+    telephoneNumber: '206-555-0102',
+    faxNumber: '206-555-0103',
+  };
+
+  function individual(addresses: unknown[]) {
+    return {
+      result_count: 1,
+      results: [
+        {
+          number: '1720034424',
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'CASEY', last_name: 'CLINICIAN', status: 'A' },
+          addresses,
+          practiceLocations: [
+            { address_purpose: 'LOCATION', address_1: '600 SATELLITE WAY', city: 'BELLEVUE' },
+          ],
+        },
+      ],
+    };
+  }
+
+  it.each([
+    ['MAILING first', [MAILING, LOCATION]],
+    ['LOCATION first', [LOCATION, MAILING]],
+  ])('keeps only the LOCATION row of an individual (%s)', async (_order, addresses) => {
+    stubJson(individual(addresses));
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec?.addresses).toEqual([LOCATION_ROW]);
+    for (const leaked of [
+      'PRIVATE HOME LANE',
+      'APT 4',
+      '981010000',
+      '206-555-0101',
+      '206-555-0109',
+    ]) {
+      expect(JSON.stringify(rec?.addresses)).not.toContain(leaked);
+    }
+    // practiceLocations are practice data and pass through unchanged.
+    expect(rec?.practiceLocations).toEqual([
+      { purpose: 'LOCATION', line1: '600 SATELLITE WAY', city: 'BELLEVUE' },
+    ]);
+  });
+
+  it('withholds an individual address row whose purpose is not LOCATION', async () => {
+    const { address_purpose: _purpose, ...unlabelled } = MAILING;
+    stubJson(individual([unlabelled, LOCATION]));
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec?.addresses).toEqual([LOCATION_ROW]);
+  });
+
+  it('returns no addresses for an individual whose only row is MAILING', async () => {
+    stubJson(individual([MAILING]));
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec?.addresses).toEqual([]);
+  });
+});
+
+describe('NppesService malformed-response boundary (#15)', () => {
+  const GOOD_RESULT = {
+    number: '1720034424',
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'JOSEPH', last_name: 'ABATE', status: 'A' },
+  };
+
+  /**
+   * Run a call whose retry backoff is driven by fake timers, so a retried
+   * malformed body settles without waiting out the real delays.
+   */
+  async function outcomeOf<T>(run: () => Promise<T>) {
+    vi.useFakeTimers();
+    const outcome = run().then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.runAllTimersAsync();
+    return outcome;
+  }
+
+  function withResult(overrides: Record<string, unknown>) {
+    return { result_count: 1, results: [{ ...GOOD_RESULT, ...overrides }] };
+  }
+
+  const ARRAY_KEYS = [
+    'taxonomies',
+    'addresses',
+    'practiceLocations',
+    'identifiers',
+    'other_names',
+    'endpoints',
+  ] as const;
+
+  const MALFORMED: [string, unknown][] = [
+    ['a null body', null],
+    ['an array body', []],
+    ['a non-array Errors', { Errors: {} }],
+    ['an empty Errors array', { Errors: [] }],
+    ['an Errors element that is not an object', { Errors: [null] }],
+    ['an envelope with no results', {}],
+    ['a zero count with no results', { result_count: 0 }],
+    ['an object results', { result_count: 1, results: {} }],
+    ['a null result', { result_count: 1, results: [null] }],
+    ['an empty result', { result_count: 1, results: [{}] }],
+    ['a missing number', withResult({ number: undefined })],
+    ['a nine-digit number', withResult({ number: '172003442' })],
+    ['a non-numeric number', withResult({ number: '172003442A' })],
+    ['an unknown enumeration_type', withResult({ enumeration_type: 'NPI-3' })],
+    ['a missing enumeration_type', withResult({ enumeration_type: undefined })],
+    ['a missing basic', withResult({ basic: undefined })],
+    ['a non-object basic', withResult({ basic: 'A' })],
+    ['a missing status', withResult({ basic: { first_name: 'UNKNOWN', last_name: 'STATUS' } })],
+    ['an unknown status', withResult({ basic: { last_name: 'X', status: 'X' } })],
+    ...ARRAY_KEYS.map((key): [string, unknown] => [
+      `a non-array ${key}`,
+      withResult({ [key]: {} }),
+    ]),
+    // A bad element anywhere in the array — after a well-formed one, too.
+    ...ARRAY_KEYS.flatMap((key): [string, unknown][] => [
+      [`a null ${key} element`, withResult({ [key]: [null] })],
+      [`a string ${key} element`, withResult({ [key]: [{}, 'text'] })],
+      [`an array ${key} element`, withResult({ [key]: [[]] })],
+    ]),
+    // A taxonomy's code is its identity; normalization would otherwise fabricate `code: ""`.
+    ['a taxonomy with no code', withResult({ taxonomies: [{ desc: 'Internal Medicine' }] })],
+    ['a taxonomy with a null code', withResult({ taxonomies: [{ code: null }] })],
+    ['a taxonomy with an empty code', withResult({ taxonomies: [{ code: '' }] })],
+    ['a taxonomy with a blank code', withResult({ taxonomies: [{ code: '   ' }] })],
+    ['a taxonomy with a numeric code', withResult({ taxonomies: [{ code: 207 }] })],
+    [
+      'a codeless taxonomy after a well-formed one',
+      withResult({ taxonomies: [{ code: '207R00000X', primary: true }, { desc: 'Cardiology' }] }),
+    ],
+  ];
+
+  it.each(MALFORMED)(
+    'retries %s, then throws ServiceUnavailable — never a record or a miss',
+    async (_label, body) => {
+      const fetchSpy = primeFetch(body, body, body, body);
+      const outcome = await outcomeOf(() => svc.getByNumber('1720034424', ctx));
+      expect(outcome).not.toHaveProperty('value');
+      const { error } = outcome as { error: McpError };
+      expect(error).toBeInstanceOf(McpError);
+      expect(error.code).toBe(JsonRpcErrorCode.ServiceUnavailable);
+      expect(error.message).toMatch(/malformed/i);
+      expect(fetchSpy).toHaveBeenCalledTimes(4);
+    },
+  );
+
+  it('fails the whole search when one row is malformed rather than dropping it', async () => {
+    const body = {
+      result_count: 2,
+      results: [GOOD_RESULT, { ...GOOD_RESULT, number: '1234567893', basic: { status: 'Q' } }],
+    };
+    primeFetch(body, body, body, body);
+    const outcome = await outcomeOf(() =>
+      svc.search({ lastName: 'ABATE', limit: 10, skip: 0 }, ctx),
+    );
+    expect(outcome).not.toHaveProperty('value');
+    expect((outcome as { error: McpError }).error).toMatchObject({
+      code: JsonRpcErrorCode.ServiceUnavailable,
+    });
+  });
+
+  it('recovers when a retried attempt returns a well-formed body', async () => {
+    const fetchSpy = primeFetch({ result_count: 1, results: [{}] }, withResult({}));
+    const outcome = await outcomeOf(() => svc.getByNumber('1720034424', ctx));
+    expect(outcome).toMatchObject({ value: { npi: '1720034424', name: 'JOSEPH ABATE' } });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats non-string scalars inside well-formed elements as absent, never throwing', async () => {
+    stubJson(
+      withResult({
+        basic: { first_name: 42, last_name: 'ABATE', credential: false, status: 'A' },
+        created_epoch: { at: 1 },
+        taxonomies: [{ code: '207R00000X', desc: 7, primary: 'yes', license: 123 }],
+        addresses: [{ address_purpose: 'LOCATION', address_1: '1 MAIN ST', city: 98101 }],
+        practiceLocations: [{ address_purpose: 7, address_1: [] }],
+        identifiers: [{ identifier: 12345 }, { identifier: 'WA-1', desc: {} }],
+        other_names: [{ first_name: null, type: 'Former Name' }],
+        endpoints: [{ endpoint: 99 }, { endpoint: 'https://example.test/fhir', address_2: 5 }],
+      }),
+    );
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec).toEqual({
+      npi: '1720034424',
+      type: 'individual',
+      status: 'active',
+      name: 'ABATE',
+      lastName: 'ABATE',
+      taxonomies: [{ code: '207R00000X', primary: false }],
+      addresses: [{ purpose: 'LOCATION', line1: '1 MAIN ST' }],
+      practiceLocations: [{}],
+      identifiers: [{ identifier: 'WA-1' }],
+      otherNames: [{ type: 'Former Name' }],
+      endpoints: [{ endpoint: 'https://example.test/fhir' }],
+    });
+  });
+
+  it('accepts a deactivated (D) record and passes unrecognized basic keys through untouched', async () => {
+    stubJson(withResult({ basic: { last_name: 'X', status: 'D', replacement_npi: '1234567893' } }));
+    const rec = await svc.getByNumber('1720034424', ctx);
+    expect(rec).toMatchObject({ npi: '1720034424', status: 'deactivated', type: 'individual' });
+  });
+});
+
 describe('NppesService Errors[]-on-200 detection', () => {
   it('maps number:04 (no criteria) to no_search_criteria and is non-retryable', async () => {
-    stubJson({ Errors: [{ description: 'No valid search criteria', field: '', number: '04' }] });
+    const fetchSpy = stubJson({
+      Errors: [{ description: 'No valid search criteria', field: '', number: '04' }],
+    });
     const err = await svc.search({ limit: 10, skip: 0 }, ctx).catch((e) => e);
     expect(err.code).toBe(JsonRpcErrorCode.ValidationError);
     expect(err.data.reason).toBe('no_search_criteria');
     expect(err.data.retryable).toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('maps number:06 (NPI not 10 digits) to invalid_npi_format', async () => {
@@ -403,6 +804,46 @@ describe('NppesService Errors[]-on-200 detection', () => {
 });
 
 describe('NppesService.search', () => {
+  /** The query string of the one registry request a search made. */
+  function sentQuery(fetchSpy: ReturnType<typeof vi.fn>): Record<string, string> {
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    return Object.fromEntries(new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams);
+  }
+
+  it.each([
+    ['city + state', { city: 'SEATTLE', state: 'WA' }, { city: 'SEATTLE', state: 'WA' }],
+    ['postal code alone', { postalCode: '98195' }, { postal_code: '98195' }],
+    ['state + last name', { state: 'WA', lastName: 'SMITH' }, { state: 'WA', last_name: 'SMITH' }],
+  ])(
+    'restricts a location search (%s) to practice addresses upstream (#19)',
+    async (_label, params, expected) => {
+      const fetchSpy = stubJson({ result_count: 0, results: [] });
+      await svc.search({ ...params, limit: 10, skip: 0 }, ctx);
+      expect(sentQuery(fetchSpy)).toEqual({
+        version: '2.1',
+        limit: '10',
+        skip: '0',
+        ...expected,
+        address_purpose: 'LOCATION',
+      });
+    },
+  );
+
+  it('sends no address_purpose on a search without a location field (#19)', async () => {
+    const fetchSpy = stubJson({ result_count: 0, results: [] });
+    await svc.search(
+      { lastName: 'SMITH', taxonomyDescription: 'Cardiovascular Disease', limit: 10, skip: 0 },
+      ctx,
+    );
+    expect(sentQuery(fetchSpy)).toEqual({
+      version: '2.1',
+      limit: '10',
+      skip: '0',
+      last_name: 'SMITH',
+      taxonomy_description: 'Cardiovascular Disease',
+    });
+  });
+
   it('returns compact summary rows', async () => {
     stubJson(FULL_INDIVIDUAL);
     const rows = await svc.search(
@@ -454,5 +895,118 @@ describe('NppesService.search', () => {
       city: 'SEATTLE',
       primaryTaxonomy: { code: '193200000X', description: 'Multi-Specialty' },
     });
+  });
+
+  it.each([
+    ['individual', 'NPI-1'],
+    ['organization', 'NPI-2'],
+  ])(
+    'takes an %s row location from LOCATION only, in either address order (#14)',
+    async (_type, enumerationType) => {
+      const mailing = {
+        address_purpose: 'MAILING',
+        city: 'TACOMA',
+        state: 'OR',
+        postal_code: '974010000',
+      };
+      const location = {
+        address_purpose: 'LOCATION',
+        city: 'SEATTLE',
+        state: 'WA',
+        postal_code: '981020000',
+      };
+      const record = (addresses: unknown[]) => ({
+        number: '1720034424',
+        enumeration_type: enumerationType,
+        basic: { last_name: 'ABATE', organization_name: 'ABATE CLINIC', status: 'A' },
+        addresses,
+      });
+      stubJson({
+        result_count: 2,
+        results: [record([mailing, location]), record([location, mailing])],
+      });
+      const rows = await svc.search({ lastName: 'ABATE', limit: 10, skip: 0 }, ctx);
+      for (const row of rows) {
+        expect(row).toMatchObject({ city: 'SEATTLE', state: 'WA', postalCode: '981020000' });
+      }
+    },
+  );
+
+  it("exposes each practice location's city/state/ZIP, in upstream order, preserving absence (#18)", async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1679937908',
+          enumeration_type: 'NPI-1',
+          basic: { last_name: 'SURGEON', status: 'A' },
+          addresses: [
+            { address_purpose: 'LOCATION', city: 'SAINT LOUIS', state: 'MO' },
+            { address_purpose: 'MAILING', city: 'SEATTLE', state: 'WA', postal_code: '981010000' },
+          ],
+          practiceLocations: [
+            {
+              address_purpose: 'LOCATION',
+              address_1: '1959 NE PACIFIC ST',
+              city: 'SEATTLE',
+              state: 'WA',
+              postal_code: '981956410',
+              telephone_number: '206-555-0100',
+            },
+            { address_purpose: 'LOCATION', city: ' TACOMA ', postal_code: '' },
+          ],
+        },
+      ],
+    });
+    const [row] = await svc.search({ city: 'SEATTLE', limit: 10, skip: 0 }, ctx);
+    expect(row).toMatchObject({ city: 'SAINT LOUIS', state: 'MO' });
+    expect(row?.practiceLocations).toEqual([
+      { city: 'SEATTLE', state: 'WA', postalCode: '981956410' },
+      { city: 'TACOMA' },
+    ]);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['empty', []],
+  ])(
+    'gives an empty practiceLocations list when it is %s (#18)',
+    async (_label, practiceLocations) => {
+      stubJson({
+        result_count: 1,
+        results: [
+          {
+            number: '1720034424',
+            enumeration_type: 'NPI-1',
+            basic: { last_name: 'ABATE', status: 'A' },
+            practiceLocations,
+          },
+        ],
+      });
+      const [row] = await svc.search({ lastName: 'ABATE', limit: 10, skip: 0 }, ctx);
+      expect(row?.practiceLocations).toEqual([]);
+    },
+  );
+
+  it('leaves city/state/postalCode absent when a row has no LOCATION address (#14)', async () => {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1720034424',
+          enumeration_type: 'NPI-1',
+          basic: { last_name: 'ABATE', status: 'A' },
+          addresses: [
+            { address_purpose: 'MAILING', city: 'SEATTLE', state: 'WA', postal_code: '981010000' },
+          ],
+        },
+      ],
+    });
+    const [row] = await svc.search({ lastName: 'ABATE', limit: 10, skip: 0 }, ctx);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('city');
+    expect(row).not.toHaveProperty('state');
+    expect(row).not.toHaveProperty('postalCode');
   });
 });
