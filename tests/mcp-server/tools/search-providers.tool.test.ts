@@ -6,6 +6,7 @@
  */
 
 import type { z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { searchProvidersTool } from '@/mcp-server/tools/definitions/search-providers.tool.js';
@@ -877,4 +878,665 @@ describe('searchProvidersTool specialty resolution (#24, #25)', () => {
     const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     expect(text).toContain('**Resolved specialty →** Sports Medicine (207QS0010X)');
   });
+});
+
+// ── #26 / #12: shared helpers ────────────────────────────────────────────────
+
+/** Answer every registry request with one page of `results`; any other URL rejects as unmocked. */
+function pageStub(results: unknown[]): ReturnType<typeof vi.fn> {
+  const fetchSpy = vi.fn(async (input: string | URL | Request) => {
+    if (new URL(String(input)).origin !== 'https://npiregistry.cms.hhs.gov') {
+      throw new Error('unmocked fetch');
+    }
+    return new Response(JSON.stringify({ result_count: results.length, results }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchSpy);
+  return fetchSpy;
+}
+
+interface SearchSurface {
+  continuationPostalCodes?: string[];
+  nextPage?: { skip: number; limit: number };
+  notice?: string;
+  providers: Record<string, unknown>[];
+  shown?: number;
+  truncated?: boolean;
+}
+
+/** Run the tool through its public contract; return both client surfaces. */
+async function contract(input: z.input<typeof searchProvidersTool.input>) {
+  const result = await runToolContract(searchProvidersTool, input);
+  expect(result.isError).not.toBe(true);
+  const text = result.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n');
+  return { structured: result.structuredContent as unknown as SearchSurface, text };
+}
+
+/** The query string of the first registry request. */
+function sentQuery(fetchSpy: ReturnType<typeof vi.fn>): Record<string, string> {
+  return Object.fromEntries(new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams);
+}
+
+/** An individual row with one primary practice location and optional secondary ones. */
+function practiceRow(
+  npi: number,
+  primary: { city: string; state: string; postal_code: string },
+  practice: { city: string; state: string; postal_code: string }[] = [],
+) {
+  return {
+    number: npi,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'PAT', last_name: 'SMITH', status: 'A' },
+    addresses: [{ address_purpose: 'LOCATION', ...primary }],
+    practiceLocations: practice.map((location) => ({ address_purpose: 'LOCATION', ...location })),
+  };
+}
+
+/** `count` distinct rows all practicing at `postal`. */
+function pageAt(count: number, postal = '981011234') {
+  return Array.from({ length: count }, (_, index) =>
+    practiceRow(1100000000 + index, { city: 'SEATTLE', state: 'WA', postal_code: postal }),
+  );
+}
+
+// ── #26: other-name matches ──────────────────────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/26
+
+describe('searchProvidersTool other-name matches (#26)', () => {
+  // Live row shape: current name ABBIATI, former name SMITH (2026-09-24).
+  const FORMER_SMITH = {
+    number: 1437702123,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'MICALA', last_name: 'ABBIATI', credential: 'RN', status: 'A' },
+    other_names: [
+      {
+        code: '1',
+        type: 'Former Name',
+        first_name: 'MICALA',
+        last_name: 'SMITH',
+        prefix: '--',
+        suffix: '--',
+      },
+    ],
+    addresses: [
+      { address_purpose: 'LOCATION', city: 'SPOKANE', state: 'WA', postal_code: '992010000' },
+    ],
+  };
+  const CURRENT_SMITH = {
+    number: 1720034424,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'JANE', last_name: 'SMITH', status: 'A' },
+    other_names: [{ code: '1', type: 'Former Name', first_name: 'JANE', last_name: 'DOE' }],
+    addresses: [
+      { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '981010000' },
+    ],
+  };
+
+  it('names the other name a row matched through, in structuredContent and content', async () => {
+    pageStub([FORMER_SMITH, CURRENT_SMITH]);
+    const { structured, text } = await contract({ last_name: 'Smith', limit: 5 });
+    expect(structured.providers[0]?.matchedOtherName).toEqual({
+      name: 'MICALA SMITH',
+      type: 'Former Name',
+    });
+    expect(structured.providers[1]).not.toHaveProperty('matchedOtherName');
+    expect(text).toContain('**Matched other name:** MICALA SMITH (Former Name)');
+    expect(text.split('**Matched other name:**')).toHaveLength(2);
+  });
+
+  it('says in the notice that other names match and results sort by current name', async () => {
+    pageStub([FORMER_SMITH, CURRENT_SMITH]);
+    const { structured, text } = await contract({ last_name: 'Smith', limit: 5 });
+    expect(structured.notice).toMatch(/1 of 2 row\(s\) matched through an other name/i);
+    expect(structured.notice).toMatch(/sorts? by current name/i);
+    expect(text).toMatch(/sorts? by current name/i);
+  });
+
+  it('adds no other-name notice when every row matched its current name', async () => {
+    pageStub([CURRENT_SMITH]);
+    const { structured } = await contract({ last_name: 'Smith', limit: 5 });
+    expect(structured.providers[0]).not.toHaveProperty('matchedOtherName');
+    expect(structured.notice).toBeUndefined();
+  });
+
+  it('keeps every row, in upstream order, and sends the same query (characterization)', async () => {
+    const fetchSpy = pageStub([FORMER_SMITH, CURRENT_SMITH]);
+    const { structured } = await contract({ last_name: 'Smith', skip: 40, limit: 5 });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1437702123', '1720034424']);
+    expect(sentQuery(fetchSpy)).toEqual({
+      version: '2.1',
+      limit: '5',
+      skip: '40',
+      last_name: 'Smith',
+    });
+  });
+
+  it('format: renders a matched other name with and without a type', () => {
+    const text = searchProvidersTool.format!({
+      providers: [
+        {
+          npi: '1437702123',
+          type: 'individual',
+          name: 'MICALA ABBIATI',
+          matchedOtherName: { name: 'MICALA SMITH', type: 'Former Name' },
+          status: 'active',
+        },
+        {
+          npi: '1720034424',
+          type: 'individual',
+          name: 'JAN DOE',
+          matchedOtherName: { name: 'JAN SMITH' },
+          status: 'active',
+        },
+      ],
+    })
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain('**Matched other name:** MICALA SMITH (Former Name)');
+    expect(text).toMatch(/\*\*Matched other name:\*\* JAN SMITH$/m);
+  });
+});
+
+// ── #12: trailing-wildcard postal_code / city ────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/12
+
+describe('searchProvidersTool wildcard postal_code and city (#12)', () => {
+  const SEATTLE_ZIP4 = practiceRow(1000000001, {
+    city: 'SEATTLE',
+    state: 'WA',
+    postal_code: '981011234',
+  });
+  const SEATTLE_ZIP5 = practiceRow(1000000002, {
+    city: 'SEATTLE',
+    state: 'WA',
+    postal_code: '98101',
+  });
+  const PORTLAND_WITH_BELLEVUE = practiceRow(
+    1000000003,
+    { city: 'PORTLAND', state: 'OR', postal_code: '972010000' },
+    [{ city: 'BELLEVUE', state: 'WA', postal_code: '980040000' }],
+  );
+  const PORTLAND = practiceRow(1000000004, {
+    city: 'PORTLAND',
+    state: 'OR',
+    postal_code: '972050000',
+  });
+  const SEATAC = practiceRow(1000000005, { city: 'SEATAC', state: 'WA', postal_code: '981880000' });
+
+  it('matches a trailing-* postal_code as a ZIP prefix on any practice location', async () => {
+    const fetchSpy = pageStub([SEATTLE_ZIP4, SEATTLE_ZIP5, PORTLAND_WITH_BELLEVUE, PORTLAND]);
+    const { structured, text } = await contract({
+      last_name: 'Smith',
+      postal_code: '98*',
+      limit: 10,
+    });
+    expect(structured.providers.map((row) => row.npi)).toEqual([
+      '1000000001',
+      '1000000002',
+      '1000000003',
+    ]);
+    expect(structured.providers[2]?.matchedLocation).toEqual({
+      city: 'BELLEVUE',
+      state: 'WA',
+      postalCode: '980040000',
+    });
+    expect(structured.notice).toMatch(/1 out-of-location row/i);
+    expect(text).toContain('**Matched practice location:** BELLEVUE, WA 980040000');
+    expect(sentQuery(fetchSpy)).toMatchObject({ postal_code: '98*', address_purpose: 'LOCATION' });
+  });
+
+  it('keeps a ZIP+4 prefix off rows recorded with only a 5-digit ZIP, as the registry does', async () => {
+    pageStub([SEATTLE_ZIP4, SEATTLE_ZIP5]);
+    const { structured } = await contract({ last_name: 'Smith', postal_code: '981011*' });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1000000001']);
+  });
+
+  it('matches a trailing-* city as a case-insensitive prefix', async () => {
+    const fetchSpy = pageStub([SEATTLE_ZIP4, SEATAC, PORTLAND_WITH_BELLEVUE]);
+    const { structured } = await contract({ last_name: 'Smith', city: 'se*', state: 'WA' });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1000000001', '1000000005']);
+    expect(sentQuery(fetchSpy)).toMatchObject({ city: 'se*', state: 'WA' });
+  });
+
+  it('keeps exact postal_code and city matching as before (characterization)', async () => {
+    pageStub([SEATTLE_ZIP4, SEATTLE_ZIP5, SEATAC]);
+    const zip = await contract({ last_name: 'Smith', postal_code: '98101' });
+    expect(zip.structured.providers.map((row) => row.npi)).toEqual(['1000000001', '1000000002']);
+    const city = await contract({ last_name: 'Smith', city: 'Seattle' });
+    expect(city.structured.providers.map((row) => row.npi)).toEqual(['1000000001', '1000000002']);
+  });
+
+  it.each(['9*', '*', '98**', '9*8', '98*1', 'AB*', '1234567890*'])(
+    'rejects postal_code %s at the schema',
+    (postal_code) => {
+      expect(searchProvidersTool.input.safeParse({ last_name: 'Smith', postal_code }).success).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(['S*', '*', 'SE*TTLE', 'SE**'])('rejects city %s at the schema', (city) => {
+    expect(searchProvidersTool.input.safeParse({ last_name: 'Smith', city }).success).toBe(false);
+  });
+
+  it.each(['98*', '981011234*', '98101', '981011234', '', 'T2C 1N6'])(
+    'accepts postal_code "%s"',
+    (postal_code) => {
+      expect(searchProvidersTool.input.safeParse({ last_name: 'Smith', postal_code }).success).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(['SE*', 'SAN F*', 'Seattle', ''])('accepts city "%s"', (city) => {
+    expect(searchProvidersTool.input.safeParse({ last_name: 'Smith', city }).success).toBe(true);
+  });
+
+  it('names the accepted wildcard shape when it rejects one, before any registry request', async () => {
+    const fetchSpy = pageStub([]);
+    const result = await runToolContract(searchProvidersTool, {
+      last_name: 'Smith',
+      postal_code: '9*',
+    });
+    expect(result.isError).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toContain('postal_code');
+    expect(text).toMatch(/2.9 digits followed by one trailing "\*"/);
+  });
+});
+
+// ── #12: the next page and the terminal window ───────────────────────────────
+
+describe('searchProvidersTool next page (#12)', () => {
+  it.each([
+    [0, 10, { skip: 10, limit: 10 }],
+    [990, 10, { skip: 1000, limit: 10 }],
+    [800, 200, { skip: 1000, limit: 200 }],
+    [0, 200, { skip: 200, limit: 200 }],
+  ])('a full page at skip %i, limit %i names the next page %o', async (skip, limit, next) => {
+    pageStub(pageAt(limit));
+    const { structured, text } = await contract({ last_name: 'Smith', skip, limit });
+    expect(structured.nextPage).toEqual(next);
+    expect(structured.notice).toContain(`skip ${next.skip}`);
+    expect(structured.notice).not.toMatch(/page with skip/i);
+    expect(structured.notice).not.toMatch(/repeat/i);
+    expect(structured).not.toHaveProperty('continuationPostalCodes');
+    expect(text).toContain(`**Next page:** skip ${next.skip}, limit ${next.limit}`);
+  });
+
+  it.each([
+    [900, 200, 100],
+    [1000, 10, 10],
+    [1000, 50, 50],
+    [999, 2, 1],
+  ])(
+    'past skip 1000 the next page from skip %i, limit %i is skip 1000, limit 200, repeating %i rows',
+    async (skip, limit, repeats) => {
+      pageStub(pageAt(limit));
+      const { structured } = await contract({ last_name: 'Smith', skip, limit });
+      expect(structured.nextPage).toEqual({ skip: 1000, limit: 200 });
+      expect(structured.notice).toContain(`first ${repeats} row`);
+      expect(structured.notice).toMatch(/dedupe by NPI/i);
+      expect(structured).not.toHaveProperty('continuationPostalCodes');
+    },
+  );
+
+  it('never names a next page the schema would reject', async () => {
+    for (const [skip, limit] of [
+      [0, 1],
+      [999, 1],
+      [1000, 1],
+      [1000, 199],
+      [801, 200],
+    ] as const) {
+      pageStub(pageAt(limit));
+      const { structured } = await contract({ last_name: 'Smith', skip, limit });
+      expect(
+        searchProvidersTool.input.safeParse({ last_name: 'Smith', ...structured.nextPage }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('a partial page names no next page, no continuation, and no notice', async () => {
+    pageStub(pageAt(3));
+    const { structured } = await contract({ last_name: 'Smith', skip: 20, limit: 10 });
+    expect(structured).not.toHaveProperty('nextPage');
+    expect(structured).not.toHaveProperty('continuationPostalCodes');
+    expect(structured.notice).toBeUndefined();
+  });
+
+  it('an empty page past the end says the matches end before that skip', async () => {
+    pageStub([]);
+    const { structured, text } = await contract({ last_name: 'Smith', skip: 20, limit: 10 });
+    expect(structured.providers).toEqual([]);
+    expect(structured.notice).toContain('skip 20');
+    expect(structured.notice).not.toMatch(/No providers matched/);
+    expect(text).toContain('skip 20');
+  });
+
+  it('an empty first page keeps the broaden notice (characterization)', async () => {
+    pageStub([]);
+    const { structured } = await contract({ last_name: 'Smith', limit: 10 });
+    expect(structured.notice).toMatch(/^No providers matched\. The registry uses substring/);
+  });
+
+  it('the full-page caveat names no field the response lacks', async () => {
+    pageStub(pageAt(10));
+    const { structured, text } = await contract({ last_name: 'Smith', limit: 10 });
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toMatch(/not a grand total/);
+      expect(surface).not.toContain('result_count');
+    }
+  });
+});
+
+describe('searchProvidersTool terminal window continuation (#12)', () => {
+  const digits = [...'0123456789'];
+
+  it('with no postal_code, continues over every 2-digit ZIP prefix', async () => {
+    pageStub(pageAt(200));
+    const { structured, text } = await contract({ last_name: 'Smith', skip: 1000, limit: 200 });
+    const codes = structured.continuationPostalCodes ?? [];
+    expect(codes).toEqual(digits.flatMap((a) => digits.map((b) => `${a}${b}*`)));
+    expect(structured).not.toHaveProperty('nextPage');
+    const notice = structured.notice ?? '';
+    expect(notice).toMatch(/no further live-API page/i);
+    expect(notice).toMatch(/first 1200 matches are reachable/i);
+    expect(notice).toMatch(/continuationPostalCodes/);
+    expect(notice).toMatch(/skip 0/);
+    expect(notice).toMatch(/fewer than limit/i);
+    expect(notice).toMatch(/dedupe by NPI/i);
+    expect(notice).toMatch(/outside the US/i);
+    expect(notice).not.toMatch(/page with skip/i);
+    expect(notice).not.toMatch(/total of|\d+ total/i);
+    expect(text).toContain('**Continue with postal_code:** 00*, 01*, 02*');
+    expect(text).toContain('98*, 99*');
+  });
+
+  it.each([
+    ['98*', '98'],
+    ['9810*', '9810'],
+    ['981011*', '981011'],
+    ['98101123*', '98101123'],
+  ])('splits postal_code %s by one more digit', async (postal_code, prefix) => {
+    pageStub(pageAt(200, '981011234'));
+    const { structured } = await contract({
+      last_name: 'Smith',
+      postal_code,
+      skip: 1000,
+      limit: 200,
+    });
+    expect(structured.continuationPostalCodes).toEqual(digits.map((d) => `${prefix}${d}*`));
+  });
+
+  it.each([
+    ['98101', '981011234', /5-digit ZIP/],
+    ['98101*', '981011234', /5-digit ZIP/],
+    ['981011234', '981011234', /ZIP\+4/],
+    ['981011234*', '981011234', /ZIP\+4/],
+    ['T2C1N6', 'T2C1N6', /numeric/],
+  ])('at postal_code %s says no postal split remains', async (postal_code, rowPostal, reason) => {
+    pageStub(pageAt(200, rowPostal));
+    const { structured, text } = await contract({
+      last_name: 'Smith',
+      postal_code,
+      skip: 1000,
+      limit: 200,
+    });
+    expect(structured.continuationPostalCodes).toEqual([]);
+    expect(structured.providers).toHaveLength(200);
+    const notice = structured.notice ?? '';
+    expect(notice).toMatch(/no further live-API page/i);
+    expect(notice).toMatch(/no postal split remains/i);
+    expect(notice).toMatch(reason);
+    expect(notice).toMatch(/not guaranteed/i);
+    expect(text).toContain('**Continue with postal_code:** none');
+  });
+
+  it('keys the continuation on the raw page even when the location filter dropped rows', async () => {
+    const page = [
+      ...pageAt(199),
+      practiceRow(1200000000, { city: 'PORTLAND', state: 'OR', postal_code: '972010000' }),
+    ];
+    pageStub(page);
+    const { structured } = await contract({
+      last_name: 'Smith',
+      postal_code: '98*',
+      skip: 1000,
+      limit: 200,
+    });
+    expect(structured.providers).toHaveLength(199);
+    expect(structured.truncated).toBe(true);
+    expect(structured.continuationPostalCodes).toEqual(digits.map((d) => `98${d}*`));
+    expect(structured.notice).toMatch(/1 out-of-location row/i);
+  });
+});
+
+// ── #29: dotted specialty abbreviations ──────────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/29
+
+describe('searchProvidersTool dotted specialty abbreviations (#29)', () => {
+  it('sends "P.A." upstream as Physician Assistant, never a pathology description', async () => {
+    const fetchSpy = pageStub([]);
+    const { structured, text } = await contract({ specialty: 'P.A.', city: 'Seattle' });
+    expect((structured as unknown as SearchEnrichment).resolvedTaxonomies?.[0]).toEqual({
+      code: '363A00000X',
+      description: 'Physician Assistant',
+    });
+    expect(sentQuery(fetchSpy).taxonomy_description).toBe('Physician Assistant');
+    expect(text).toContain('**Resolved specialty →** Physician Assistant (363A00000X)');
+  });
+});
+
+// ── #30: individual and organization criteria can't be mixed ─────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/30
+
+describe('searchProvidersTool mixed individual and organization criteria (#30)', () => {
+  /** What NPPES answers for every mixed combination (live, 2026-09-24). */
+  function stubMixedTypeError(): ReturnType<typeof vi.fn> {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            Errors: [
+              {
+                description: 'Cannot mix type 1 and type 2 search criteria',
+                field: 'generic',
+                number: '13',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    return fetchSpy;
+  }
+
+  it.each([
+    [{ last_name: 'Smith', provider_type: 'organization' }, ['last_name', 'provider_type']],
+    [{ first_name: 'John', provider_type: 'organization' }, ['first_name', 'provider_type']],
+    [
+      { name_search: 'John Smith', provider_type: 'organization' },
+      ['name_search', 'provider_type'],
+    ],
+    [
+      { organization_name: 'Swedish', provider_type: 'individual' },
+      ['organization_name', 'provider_type'],
+    ],
+    [{ organization_name: 'Swedish*', last_name: 'Smith' }, ['organization_name', 'last_name']],
+    [{ organization_name: 'Swedish*', first_name: 'John' }, ['organization_name', 'first_name']],
+    [
+      { organization_name: 'Swedish*', last_name: 'Smith', provider_type: 'organization' },
+      ['organization_name', 'last_name', 'provider_type'],
+    ],
+    [
+      { organization_name: 'Swedish*', name_search: 'Smith', provider_type: 'individual' },
+      ['organization_name', 'name_search', 'provider_type'],
+    ],
+  ] as const)('rejects %o before any registry request, naming %o', async (input, fields) => {
+    const fetchSpy = stubMixedTypeError();
+    const result = await runToolContract(searchProvidersTool, input);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    const error = (
+      result.structuredContent as {
+        error: { code: number; data: { reason: string; recovery?: { hint: string } } };
+      }
+    ).error;
+    expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+    expect(error.data.reason).toBe('mixed_provider_criteria');
+    const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+    expect(text).toMatch(/Recovery:/);
+    for (const field of fields) {
+      expect(error.data.recovery?.hint).toContain(field);
+      expect(text).toContain(field);
+    }
+    expect(text).toMatch(/individual/i);
+    expect(text).toMatch(/organization/i);
+    expect(text).not.toMatch(/wildcard/i);
+  });
+
+  it.each([
+    [{ last_name: 'Smith' }, { last_name: 'Smith' }],
+    [
+      { last_name: 'Smith', provider_type: 'individual' },
+      { last_name: 'Smith', enumeration_type: 'NPI-1' },
+    ],
+    [
+      { first_name: 'John', provider_type: 'individual' },
+      { first_name: 'John', enumeration_type: 'NPI-1' },
+    ],
+    [{ name_search: 'John Smith' }, { first_name: 'John', last_name: 'Smith' }],
+    [
+      { organization_name: 'Swedish*' },
+      { organization_name: 'Swedish*', enumeration_type: 'NPI-2' },
+    ],
+    [
+      { organization_name: 'Swedish*', provider_type: 'organization' },
+      { organization_name: 'Swedish*', enumeration_type: 'NPI-2' },
+    ],
+    [
+      { organization_name: 'Swedish*', last_name: '', first_name: '  ', name_search: '' },
+      { organization_name: 'Swedish*', enumeration_type: 'NPI-2' },
+    ],
+    [
+      { city: 'Seattle', provider_type: 'organization' },
+      { city: 'Seattle', enumeration_type: 'NPI-2' },
+    ],
+  ] as const)('%o still searches as before (characterization)', async (input, sent) => {
+    const fetchSpy = pageStub([]);
+    await contract({ ...input, limit: 5 });
+    const query = sentQuery(fetchSpy);
+    expect(query).toMatchObject(sent);
+    if (!('enumeration_type' in sent)) expect(query).not.toHaveProperty('enumeration_type');
+    for (const key of ['first_name', 'last_name', 'organization_name']) {
+      if (!(key in sent)) expect(query).not.toHaveProperty(key);
+    }
+  });
+});
+
+// ── #31: a specialty made only of stop words ─────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/31
+
+describe('searchProvidersTool stop-word-only specialty (#31)', () => {
+  type ErrorData = { reason?: string; recovery?: { hint?: string } };
+
+  it.each([
+    ['doctor', true],
+    ['physician', true],
+    ['do', true],
+    ['M.D.', true],
+    ['specialist', false],
+  ] as const)(
+    'specialty "%s" fails with unresolved_specialty before any registry request',
+    async (specialty, physician) => {
+      const fetchSpy = pageStub([]);
+      const result = await runToolContract(searchProvidersTool, {
+        specialty,
+        city: 'Seattle',
+        state: 'WA',
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      const error = (result.structuredContent as { error: { message: string; data: ErrorData } })
+        .error;
+      expect(error.data.reason).toBe('unresolved_specialty');
+      expect(error.message).toBe(`Specialty "${specialty}" names no specialty on its own.`);
+      expect(error.data.recovery?.hint).toMatch(/npi_lookup_taxonomy mode browse/);
+      const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+      expect(text).toContain('Recovery:');
+      expect(text).toContain('npi_lookup_taxonomy mode browse');
+      expect(text.includes('grouping "Allopathic & Osteopathic Physicians"')).toBe(physician);
+    },
+  );
+
+  it.each([
+    ['physician assistant', 'Physician Assistant'],
+    ['heart doctor', 'Cardiovascular Disease'],
+    ['family doctor', 'Family Medicine'],
+  ])(
+    'specialty "%s" still sends %s upstream (characterization)',
+    async (specialty, description) => {
+      const fetchSpy = pageStub([]);
+      await contract({ specialty, city: 'Seattle' });
+      expect(sentQuery(fetchSpy).taxonomy_description).toBe(description);
+    },
+  );
+});
+
+// ── #32: plural stop words ───────────────────────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/32
+
+describe('searchProvidersTool plural stop words in specialty (#32)', () => {
+  type ErrorData = { reason?: string; recovery?: { hint?: string } };
+
+  it.each([
+    ['physicians', true],
+    ['doctors', true],
+    ['specialists', false],
+    ['providers', false],
+  ] as const)(
+    'specialty "%s" fails with unresolved_specialty before any registry request',
+    async (specialty, physician) => {
+      const fetchSpy = pageStub([]);
+      const result = await runToolContract(searchProvidersTool, { specialty, city: 'Seattle' });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      const error = (
+        result.structuredContent as { error: { code: number; message: string; data: ErrorData } }
+      ).error;
+      expect(error.code).toBe(JsonRpcErrorCode.NotFound);
+      expect(error.data.reason).toBe('unresolved_specialty');
+      expect(error.message).toBe(`Specialty "${specialty}" names no specialty on its own.`);
+      expect(error.data.recovery?.hint).toMatch(/npi_lookup_taxonomy mode browse/);
+      const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+      expect(text).toContain(`Specialty "${specialty}" names no specialty on its own.`);
+      expect(text).toContain('Recovery:');
+      expect(text).toContain('npi_lookup_taxonomy mode browse');
+      expect(text.includes('grouping "Allopathic & Osteopathic Physicians"')).toBe(physician);
+    },
+  );
+
+  it.each([
+    ['heart doctors', 'Cardiovascular Disease', '207RC0000X'],
+    ['family doctors', 'Family Medicine', '207Q00000X'],
+  ])(
+    'specialty "%s" sends %s upstream and echoes %s on both surfaces',
+    async (specialty, description, code) => {
+      const fetchSpy = pageStub([]);
+      const { structured, text } = await contract({ specialty, city: 'Seattle' });
+      expect(sentQuery(fetchSpy).taxonomy_description).toBe(description);
+      const echoed = structured as unknown as {
+        appliedTaxonomyDescription?: string;
+        resolvedTaxonomies?: { code: string }[];
+      };
+      expect(echoed.appliedTaxonomyDescription).toBe(description);
+      expect(echoed.resolvedTaxonomies?.[0]?.code).toBe(code);
+      expect(text).toContain(`${description} (${code})`);
+    },
+  );
 });

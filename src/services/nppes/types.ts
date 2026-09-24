@@ -290,13 +290,22 @@ export interface ProviderLocation {
   state?: string;
 }
 
+/** The other name a search row matched through: its assembled name and NPPES name type. */
+export interface MatchedOtherName {
+  name: string;
+  type?: string;
+}
+
 /**
  * A compact provider row for search disambiguation. `city`/`state`/`postalCode`
  * come from the primary `LOCATION` address; `practiceLocations` carries each
  * secondary practice location, so a location search can match either.
+ * `matchedOtherName` is present only when the row matched the search's name
+ * criteria through an other name rather than the current name.
  */
 export interface ProviderSummary extends ProviderLocation {
   credential?: string;
+  matchedOtherName?: MatchedOtherName;
   name: string;
   npi: string;
   practiceLocations: ProviderLocation[];

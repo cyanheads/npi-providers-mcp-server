@@ -19,9 +19,12 @@ import { serviceUnavailable, validationError } from '@cyanheads/mcp-ts-core/erro
 import { fetchWithTimeout, withRetry } from '@cyanheads/mcp-ts-core/utils';
 
 import { getServerConfig } from '@/config/server-config.js';
+import { findMatchedOtherName, type NameCriteria } from './other-name-match.js';
 import type {
+  MatchedOtherName,
   NppesSearchParams,
   ProviderLocation,
+  ProviderOtherName,
   ProviderRecord,
   ProviderStatus,
   ProviderSummary,
@@ -30,6 +33,7 @@ import type {
   RawNppesAddress,
   RawNppesBasic,
   RawNppesError,
+  RawNppesOtherName,
   RawNppesResult,
   RawStatusCode,
 } from './types.js';
@@ -218,6 +222,44 @@ function assembleName(raw: RawNppesResult, type: ProviderType): string {
   return assembled || trimmed(basic.name) || `NPI ${raw.number}`;
 }
 
+/** Normalize one `other_names[]` entry; the `"--"` prefix/suffix placeholder reads as absent. */
+function normalizeOtherName(n: RawNppesOtherName): ProviderOtherName {
+  return {
+    ...field('type', trimmed(n.type)),
+    ...field('firstName', trimmed(n.first_name)),
+    ...field('middleName', trimmed(n.middle_name)),
+    ...field('lastName', trimmed(n.last_name)),
+    ...field('prefix', trimmedNonPlaceholder(n.prefix)),
+    ...field('suffix', trimmedNonPlaceholder(n.suffix)),
+    ...field('organizationName', trimmed(n.organization_name)),
+    ...field('credential', trimmed(n.credential)),
+  };
+}
+
+/**
+ * The other name a search row matched through, as `{ name, type? }` — `name` is the
+ * other name's "First Middle Last", or its organization name. Absent when the row's
+ * current name may have matched (see {@link findMatchedOtherName}).
+ */
+function matchedOtherName(
+  raw: RawNppesResult,
+  criteria: NameCriteria,
+): MatchedOtherName | undefined {
+  const match = findMatchedOtherName(
+    presentFields({
+      firstName: trimmed(raw.basic.first_name),
+      lastName: trimmed(raw.basic.last_name),
+      organizationName: trimmed(raw.basic.organization_name),
+    }),
+    (raw.other_names ?? []).map(normalizeOtherName),
+    criteria,
+  );
+  if (!match) return;
+  const personal = [match.firstName, match.middleName, match.lastName].filter(Boolean).join(' ');
+  const name = personal || match.organizationName;
+  return name ? { name, ...field('type', match.type) } : undefined;
+}
+
 /** The `primary: true` taxonomy, falling back to the first taxonomy when none is flagged. */
 function pickPrimaryTaxonomy(
   raw: RawNppesResult,
@@ -328,7 +370,12 @@ export class NppesService {
     if (params.city || params.state || params.postalCode) query.address_purpose = 'LOCATION';
 
     const results = await this.call(query, ctx, 'nppes.search');
-    return results.map((raw) => this.normalizeSummary(raw));
+    const criteria: NameCriteria = presentFields({
+      firstName: params.firstName,
+      lastName: params.lastName,
+      organizationName: params.organizationName,
+    });
+    return results.map((raw) => this.normalizeSummary(raw, criteria));
   }
 
   /**
@@ -345,9 +392,10 @@ export class NppesService {
    * the `LOCATION` (practice) address only — selected by purpose, since the
    * registry's address order varies — and are absent when there is none. Each
    * `practiceLocations[]` row contributes its city/state/ZIP in upstream order;
-   * no `MAILING` row ever reaches the summary.
+   * no `MAILING` row ever reaches the summary. `matchedOtherName` names the other
+   * name the row matched the search's name `criteria` through, when it provably did.
    */
-  private normalizeSummary(raw: RawNppesResult): ProviderSummary {
+  private normalizeSummary(raw: RawNppesResult, criteria: NameCriteria): ProviderSummary {
     const type = TYPE_BY_ENUMERATION[raw.enumeration_type];
     return {
       npi: String(raw.number),
@@ -355,6 +403,7 @@ export class NppesService {
       status: STATUS_BY_CODE[raw.basic.status],
       name: assembleName(raw, type),
       ...field('credential', trimmed(raw.basic.credential)),
+      ...field('matchedOtherName', matchedOtherName(raw, criteria)),
       ...field('primaryTaxonomy', pickPrimaryTaxonomy(raw)),
       ...cityStateZip((raw.addresses ?? []).find(isPracticeLocation)),
       practiceLocations: (raw.practiceLocations ?? []).map(cityStateZip),
@@ -405,16 +454,7 @@ export class NppesService {
           ...field('issuer', trimmed(i.issuer)),
           ...field('state', trimmed(i.state)),
         })),
-      otherNames: (raw.other_names ?? []).map((n) => ({
-        ...field('type', trimmed(n.type)),
-        ...field('firstName', trimmed(n.first_name)),
-        ...field('middleName', trimmed(n.middle_name)),
-        ...field('lastName', trimmed(n.last_name)),
-        ...field('prefix', trimmedNonPlaceholder(n.prefix)),
-        ...field('suffix', trimmedNonPlaceholder(n.suffix)),
-        ...field('organizationName', trimmed(n.organization_name)),
-        ...field('credential', trimmed(n.credential)),
-      })),
+      otherNames: (raw.other_names ?? []).map(normalizeOtherName),
       endpoints: (raw.endpoints ?? [])
         .map((e) => ({ endpoint: trimmed(e.endpoint), raw: e }))
         .filter((x): x is { endpoint: string; raw: typeof x.raw } => x.endpoint !== undefined)

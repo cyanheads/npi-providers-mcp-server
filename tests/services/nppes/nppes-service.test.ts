@@ -1010,3 +1010,148 @@ describe('NppesService.search', () => {
     expect(row).not.toHaveProperty('postalCode');
   });
 });
+
+// ── #26: rows matched through an other name ──────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/26
+
+describe('NppesService.search other-name matches (#26)', () => {
+  type Criteria = { firstName?: string; lastName?: string; organizationName?: string };
+
+  /** One search over a single registry row; returns its summary. */
+  async function searchOne(criteria: Criteria, basic: object, otherNames: object[] = []) {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1437702123',
+          enumeration_type: 'organizationName' in criteria ? 'NPI-2' : 'NPI-1',
+          basic: { ...basic, status: 'A' },
+          other_names: otherNames,
+        },
+      ],
+    });
+    const [row] = await svc.search({ ...criteria, limit: 10, skip: 0 }, ctx);
+    return row;
+  }
+
+  // Row shapes below are live NPPES rows (names, other-name types) from 2026-09-24 probes.
+  it.each([
+    [
+      'current last name differs, a former name matches it',
+      { lastName: 'Smith' },
+      { first_name: 'MICALA', last_name: 'ABBIATI' },
+      [{ code: '1', type: 'Former Name', first_name: 'MICALA', last_name: 'SMITH', prefix: '--' }],
+      { name: 'MICALA SMITH', type: 'Former Name' },
+    ],
+    [
+      'a hyphenated current surname is not the requested one',
+      { lastName: 'Smith' },
+      { first_name: 'KENDRA', last_name: 'BLACK-SMITH' },
+      [{ type: 'Former Name', first_name: 'KENDRA', last_name: 'SMITH' }],
+      { name: 'KENDRA SMITH', type: 'Former Name' },
+    ],
+    [
+      'a wildcard first name fails the current name and matches an other name',
+      { firstName: 'JO*', lastName: 'Smith' },
+      { first_name: 'DEBRA', last_name: 'SMITH' },
+      [{ type: 'Other Name', first_name: 'JODI', middle_name: 'B', last_name: 'JOHNSON' }],
+      { name: 'JODI B JOHNSON', type: 'Other Name' },
+    ],
+    [
+      'a wildcard last name fails the current name',
+      { lastName: 'Smit*' },
+      { first_name: 'ALEXANDRA', last_name: 'AINSLIE' },
+      [{ type: 'Former Name', first_name: 'ALEXANDRA', last_name: 'SMITH' }],
+      { name: 'ALEXANDRA SMITH', type: 'Former Name' },
+    ],
+    [
+      'an apostrophe name matched only through an other name',
+      { lastName: "O'Brien" },
+      { first_name: 'SUSAN', last_name: "BONE O'BRIEN" },
+      [{ type: 'Other Name', first_name: 'SUSAN', last_name: "O'BRIEN" }],
+      { name: "SUSAN O'BRIEN", type: 'Other Name' },
+    ],
+    [
+      'an organization matched through another organization name',
+      { organizationName: 'Swedish Medical Center' },
+      { organization_name: 'CAREPOINT HOSPITAL MEDICINE, PLLC' },
+      [{ type: 'Other Name', organization_name: 'SWEDISH MEDICAL CENTER' }],
+      { name: 'SWEDISH MEDICAL CENTER', type: 'Other Name' },
+    ],
+    [
+      'several other names: the one satisfying every requested field',
+      { firstName: 'Anna', lastName: 'Smith' },
+      { first_name: 'ANNA', last_name: 'BAKER' },
+      [
+        { type: 'Former Name', first_name: 'JANE', last_name: 'SMITH' },
+        { type: 'Former Name', first_name: 'ANNA', last_name: 'SMITH' },
+      ],
+      { name: 'ANNA SMITH', type: 'Former Name' },
+    ],
+    [
+      'an other name with no type',
+      { lastName: 'Smith' },
+      { first_name: 'JAN', last_name: 'DOE' },
+      [{ first_name: 'JAN', last_name: 'SMITH' }],
+      { name: 'JAN SMITH' },
+    ],
+  ])('names the other name when %s', async (_label, criteria, basic, otherNames, expected) => {
+    const row = await searchOne(criteria, basic, otherNames);
+    expect(row?.matchedOtherName).toEqual(expected);
+  });
+
+  it.each([
+    [
+      'the current name matches (other names present)',
+      { lastName: 'Smith' },
+      { first_name: 'JANE', last_name: 'SMITH' },
+      [{ type: 'Former Name', first_name: 'JANE', last_name: 'SMITH' }],
+    ],
+    [
+      'the current first name matches only through a first-name alias',
+      { firstName: 'Robert', lastName: 'Smith' },
+      { first_name: 'ROB', last_name: 'SMITH' },
+      [{ type: 'Professional Name', first_name: 'ROBERT', last_name: 'SMITH' }],
+    ],
+    [
+      'an exact first name differs but the registry may alias it (never decisive)',
+      { firstName: 'Robert', lastName: 'Smith' },
+      { first_name: 'KENYONA', last_name: 'SMITH' },
+      [{ type: 'Professional Name', first_name: 'ROBERT', last_name: 'BUFORD' }],
+    ],
+    [
+      'the current last name matches a wildcard prefix',
+      { lastName: 'Smit*' },
+      { first_name: 'ANN', last_name: 'SMITHSON' },
+      [{ type: 'Former Name', first_name: 'ANN', last_name: 'SMITH' }],
+    ],
+    [
+      'the current name matches ignoring case and punctuation',
+      { lastName: 'OBrien' },
+      { first_name: 'PAT', last_name: "O'BRIEN" },
+      [{ type: 'Other Name', first_name: 'PAT', last_name: 'OBRIEN' }],
+    ],
+    [
+      'the current name matches ignoring spaces',
+      { lastName: 'DeLaCruz' },
+      { first_name: 'ANA', last_name: 'DE LA CRUZ' },
+      [{ type: 'Former Name', first_name: 'ANA', last_name: 'DELACRUZ' }],
+    ],
+    [
+      'no other name explains the match',
+      { lastName: 'Smith' },
+      { first_name: 'LEE', last_name: 'JONES' },
+      [{ type: 'Former Name', first_name: 'LEE', last_name: 'BROWN' }],
+    ],
+    [
+      'the search has no name criterion',
+      {},
+      { first_name: 'LEE', last_name: 'JONES' },
+      [{ type: 'Former Name', first_name: 'LEE', last_name: 'SMITH' }],
+    ],
+  ])('adds no matchedOtherName when %s', async (_label, criteria, basic, otherNames) => {
+    const row = await searchOne(criteria, basic, otherNames);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('matchedOtherName');
+  });
+});

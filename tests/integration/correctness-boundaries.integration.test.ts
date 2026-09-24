@@ -437,7 +437,7 @@ describe('taxonomy completeness and search pagination honesty', () => {
     expect(getEnrichment(ctx).notice).toMatch(/first 1200 matches are reachable/i);
   });
 
-  it.skip('does not recommend an impossible next page at the terminal window (#12)', async () => {
+  it('does not recommend an impossible next page at the terminal window (#12)', async () => {
     // https://github.com/cyanheads/npi-providers-mcp-server/issues/12
     const terminalPage = Array.from({ length: 200 }, () => INDIVIDUAL_RESULT);
     stubNppes(() => terminalPage);
