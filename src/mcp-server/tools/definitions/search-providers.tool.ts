@@ -308,7 +308,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
       })
       .optional()
       .describe(
-        'The next page: re-run the same arguments with this skip and limit. Present after a full page while rows remain reachable. Past skip 1000 it is skip 1000, limit 200, whose leading rows repeat rows already returned (the notice says how many) — dedupe by NPI.',
+        'The next page: re-run the same arguments with this skip and limit. Present after a full page while rows remain reachable. When skip + limit passes 1000 it is skip 1000, limit 200, whose leading rows repeat rows already returned (the notice says how many) — dedupe by NPI.',
       ),
     continuationPostalCodes: z
       .array(z.string().describe('A trailing-"*" postal_code prefix.'))
@@ -543,7 +543,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
         noticeParts.push(
           'This is the terminal window: no further live-API page exists for this search, because only the first 1200 matches are reachable (skip max 1000, limit max 200).',
           'postalCodes' in continuation
-            ? `To continue, re-run the same arguments once per postal_code in continuationPostalCodes (${postalCodes[0]} … ${postalCodes.at(-1)}, ${postalCodes.length} values), each starting at skip 0, and page each until a page returns fewer than limit rows; split a value that reaches its own terminal window the same way. A provider with several practice locations can appear under more than one value — dedupe by NPI. Practice addresses outside the US have no numeric ZIP and are not reached this way.`
+            ? `To continue, re-run the same arguments once per postal_code in continuationPostalCodes (${postalCodes[0]} … ${postalCodes.at(-1)}, ${postalCodes.length} values), each starting at skip 0, and follow each one's nextPage until a response names none (a page the location filter trimmed below limit can still name one); split a value that returns its own continuationPostalCodes the same way. A provider with several practice locations can appear under more than one value — dedupe by NPI. Practice addresses outside the US have no numeric ZIP and are not reached this way.`
             : `No postal split remains: ${continuation.deadEnd}. Narrowing by name, specialty, or provider_type reaches other subsets of this search but is not guaranteed to cover every match.`,
         );
       }

@@ -1247,7 +1247,10 @@ describe('searchProvidersTool terminal window continuation (#12)', () => {
     expect(notice).toMatch(/first 1200 matches are reachable/i);
     expect(notice).toMatch(/continuationPostalCodes/);
     expect(notice).toMatch(/skip 0/);
-    expect(notice).toMatch(/fewer than limit/i);
+    // A page the location filter trimmed below limit can still name a nextPage, so the
+    // procedure pages by nextPage, never by a short page.
+    expect(notice).toMatch(/follow each one's nextPage until a response names none/);
+    expect(notice).not.toMatch(/until a page returns fewer than limit/i);
     expect(notice).toMatch(/dedupe by NPI/i);
     expect(notice).toMatch(/outside the US/i);
     expect(notice).not.toMatch(/page with skip/i);
