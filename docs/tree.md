@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-09-24 21:28:37
+Generated on: 2026-09-24 22:17:40
 
 ```text
 npi-providers-mcp-server/
@@ -26,6 +26,7 @@ npi-providers-mcp-server/
 ├── changelog/
 │   ├── 0.1.x/
 │   ├── 0.2.x/
+│   ├── 0.3.x/
 │   └── template.md
 ├── docs/
 │   └── design.md

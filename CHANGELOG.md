@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-09-24
+
+Taxonomy lookups return NUCC notes and active/inactive status, resolve stops returning inactive codes over the refreshed NUCC v26.1 set, and common specialty terms resolve to the right entry.
+
 ## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-09-24
 
 Individual providers' records keep only practice-location addresses, NPIs are checked against their check digit before lookup, and malformed NPPES responses surface as ServiceUnavailable instead of a miss.
