@@ -231,6 +231,7 @@ src/
   services/
     nppes/
       nppes-service.ts                        # NPPES API v2.1 client — query build, Errors[]-on-200 detection, normalization
+      other-name-match.ts                     # Whether a search row matched through an other (former/DBA) name
       types.ts                                # NPPES domain + raw types
     taxonomy/
       taxonomy-service.ts                     # In-memory NUCC index — resolve / get / browse
@@ -239,6 +240,7 @@ src/
       data/nucc_taxonomy_261.csv              # Source CSV (v26.1); regenerate taxonomy-data.ts from it
   mcp-server/
     npi-check-digit.ts                        # NPI check digit (Luhn over 80840 + NPI) — shared by the NPI tool and resource
+    search-window.ts                          # 1200-match window: next page, postal-prefix continuation
     tools/definitions/
       search-providers.tool.ts                # npi_search_providers
       get-provider.tool.ts                    # npi_get_provider

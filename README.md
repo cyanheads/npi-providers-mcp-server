@@ -52,12 +52,13 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 ### `npi_search_providers` <sub>tool</sub>
 
-- Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`); at least one criterion is required and the registry rejects state-only searches
+- Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`); at least one criterion is required and the registry rejects state-only searches. Person names search individuals and `organization_name` searches organizations, so mixing the two sides (directly or through `provider_type`) fails before any registry request
 - Plain-language `specialty` resolves through the bundled NUCC taxonomy to the registry's exact description before searching, echoed back via `resolvedTaxonomies` / `appliedTaxonomyDescription`; inactive NUCC codes are never resolved. `taxonomy_description` is an escape hatch for an already-known exact description (mutually exclusive with `specialty`)
-- Trailing-wildcard (`*`) name/organization matching requires at least 2 leading characters
+- Trailing-wildcard (`*`) matching on names, organization, and `city` requires at least 2 leading characters; `postal_code` takes 5 or 9 digits, or a 2–9 digit prefix ending in `*` (`98*`, `981*`)
+- Name searches also match former and other names, and the registry sorts by current name; a row matched through one names it in `matchedOtherName` (an exact `first_name` alone never marks a row, since the registry also matches first-name variants)
 - Each row's `city` / `state` / `postalCode` is the primary practice location. A location search matches practice addresses only, never mailing addresses: a row is returned only when the primary practice location or another practice location matches every requested location field (any other row the registry returns is filtered out, with a `notice` counting it), and a row kept on another practice location names it in `matchedLocation`
-- `limit` 1–200 (default 10), `skip` 0–1000; the registry never reports a true match total, only the first 1200 matches are reachable, and the response discloses page-size-not-total via `truncated` / `notice`
-- Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `unresolved_specialty`, `invalid_search_field`
+- `limit` 1–200 (default 10), `skip` 0–1000; the registry never reports a true match total, and the response discloses page-size-not-total via `truncated` / `notice`. A full page names the next page in `nextPage`; one search reaches only its first 1200 matches, so the terminal window (`skip` 1000, `limit` 200) instead returns `continuationPostalCodes` — `postal_code` prefixes to re-run the same search with, deduplicating by NPI. That split cannot go below a 5-digit ZIP or reach practice addresses outside the US, and the notice says so
+- Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `mixed_provider_criteria`, `unresolved_specialty`, `invalid_search_field`
 
 ---
 
@@ -75,6 +76,7 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 - Three modes: `resolve` (plain-language term → matching codes/descriptions), `get` (exact code → full entry, including NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by grouping and NPI `section`)
 - Every entry carries `status` (`active` / `inactive`) and, for an inactive code, the `replacedBy` code NUCC names; `resolve` never returns inactive codes, while `get` and `browse` still do. A query that matches only inactive codes fails with `no_match` naming them and their replacements
+- Credential abbreviations resolve, dotted or not (`rn`, `R.N.`, `np`, `pa`, `crna`, `lpn`, `lvn`, `emt`, `er`). A query made only of generic words, singular or plural (`physician`, `doctors`, `M.D.`, `specialist`, `providers`), names no specialty, so it fails with `no_match` and a hint to `browse`, rather than matching an unrelated word
 - `resolve` / `browse` cap results at `limit` (≤50, default 20) and disclose `truncated`; page past the cap with `skip` (0–1000, raised by `limit` each call)
 - A resolved entry's `specialization` (or `classification` when specialization is absent) is the exact value `npi_search_providers.taxonomy_description` accepts
 - Typed error reasons: `no_match`, `missing_argument`
@@ -107,7 +109,7 @@ NPI/NPPES-specific:
 Agent-friendly output:
 
 - Provenance on search — the resolved taxonomy and the exact `taxonomy_description` sent to the registry are echoed back, so agents can see what was actually searched and re-run with a different code
-- Honest pagination — the returned count is disclosed as the page size, never a fabricated grand total, with the 1200-match reachable ceiling surfaced when a broad query is capped
+- Honest pagination — the returned count is disclosed as the page size, never a fabricated grand total; a full page names the exact next page, and a broad query that hits the 1200-match reachable ceiling gets the postal-code prefixes that continue it
 - Graceful partial failure — `npi_get_provider` returns per-NPI `found` / `notFound` / `errored` / `invalid` rows instead of failing the whole batch
 
 ## Getting started
