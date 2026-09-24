@@ -1,6 +1,6 @@
 {
   "name": "npi-providers-mcp-server",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP.",
   "author": {
     "name": "Casey Hand",

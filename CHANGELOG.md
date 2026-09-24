@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-09-24
+
+Individual providers' records keep only practice-location addresses, NPIs are checked against their check digit before lookup, and malformed NPPES responses surface as ServiceUnavailable instead of a miss.
+
 ## [0.1.9](changelog/0.1.x/0.1.9.md) — 2026-09-20
 
 Adopt @cyanheads/mcp-ts-core ^0.13.6 — tool arguments pass a pre-validation step that drops client-added keys and rewrites case-style spellings, and an out-of-schema argument is rejected as InvalidParams carrying a schema-derived recovery hint.
