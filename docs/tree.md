@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-09-24 22:17:40
+Generated on: 2026-09-24 23:43:25
 
 ```text
 npi-providers-mcp-server/
@@ -27,6 +27,7 @@ npi-providers-mcp-server/
 │   ├── 0.1.x/
 │   ├── 0.2.x/
 │   ├── 0.3.x/
+│   ├── 0.4.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
@@ -150,10 +151,12 @@ npi-providers-mcp-server/
 │   │   │       ├── get-provider.tool.ts
 │   │   │       ├── lookup-taxonomy.tool.ts
 │   │   │       └── search-providers.tool.ts
-│   │   └── npi-check-digit.ts
+│   │   ├── npi-check-digit.ts
+│   │   └── search-window.ts
 │   ├── services/
 │   │   ├── nppes/
 │   │   │   ├── nppes-service.ts
+│   │   │   ├── other-name-match.ts
 │   │   │   └── types.ts
 │   │   └── taxonomy/
 │   │       ├── data/
@@ -166,7 +169,8 @@ npi-providers-mcp-server/
 │   ├── fuzz/
 │   │   └── nppes-response.fuzz.test.ts
 │   ├── integration/
-│   │   └── correctness-boundaries.integration.test.ts
+│   │   ├── correctness-boundaries.integration.test.ts
+│   │   └── nppes-live.integration.test.ts
 │   ├── mcp-server/
 │   │   ├── resources/
 │   │   │   ├── provider.resource.test.ts

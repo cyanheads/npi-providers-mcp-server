@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.4.0](changelog/0.4.x/0.4.0.md) — 2026-09-24
+
+npi_search_providers continues past the 1200-match window by postal-code prefix and flags rows matched through an other name; taxonomy resolve handles credential abbreviations, dotted forms, and plural or stop-word-only queries.
+
 ## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-09-24
 
 Taxonomy lookups return NUCC notes and active/inactive status, resolve stops returning inactive codes over the refreshed NUCC v26.1 set, and common specialty terms resolve to the right entry.
