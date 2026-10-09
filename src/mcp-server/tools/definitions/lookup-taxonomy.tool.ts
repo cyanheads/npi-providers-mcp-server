@@ -190,15 +190,11 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     if (input.mode === 'get') {
       const code = input.code.trim();
       if (!code) {
-        throw ctx.fail('missing_argument', 'Mode "get" requires a `code`.', {
-          ...ctx.recoveryFor('missing_argument'),
-        });
+        throw ctx.fail('missing_argument', 'Mode "get" requires a `code`.');
       }
       const entry = taxonomy.get(code);
       if (!entry) {
-        throw ctx.fail('no_match', `No taxonomy entry for code "${code}".`, {
-          ...ctx.recoveryFor('no_match'),
-        });
+        throw ctx.fail('no_match', `No taxonomy entry for code "${code}".`);
       }
       return { matches: [{ ...toEntry(entry), ...(entry.notes ? { notes: entry.notes } : {}) }] };
     }
@@ -206,9 +202,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
     if (input.mode === 'resolve') {
       const query = input.query.trim();
       if (!query) {
-        throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.', {
-          ...ctx.recoveryFor('missing_argument'),
-        });
+        throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.');
       }
       // "doctor", "M.D.", "specialist" alone name no specialty; point at browse, not a bare miss.
       const stopWordsOnly = stopWordOnlyQuery(query);
@@ -248,9 +242,7 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
             },
           );
         }
-        throw ctx.fail('no_match', `No taxonomy matched "${query}".`, {
-          ...ctx.recoveryFor('no_match'),
-        });
+        throw ctx.fail('no_match', `No taxonomy matched "${query}".`);
       }
       const matches = hits.slice(0, input.limit);
       if (hits.length > input.limit) {

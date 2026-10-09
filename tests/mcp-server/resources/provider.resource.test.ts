@@ -6,6 +6,7 @@
 
 import { JsonRpcErrorCode, type McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createWorkerHandler } from '@cyanheads/mcp-ts-core/worker';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { providerResource } from '@/mcp-server/resources/definitions/provider.resource.js';
 import { initNppesService } from '@/services/nppes/nppes-service.js';
@@ -35,6 +36,64 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+const PROTOCOL_REVISION = '2026-07-28';
+
+/**
+ * Read `uri` through the resource factory (served by `createWorkerHandler`) and
+ * return the JSON-RPC `error` — the path that applies the declared-recovery fill,
+ * which a direct `handler(...)` call skips.
+ */
+async function readResourceError(uri: string): Promise<{
+  code: number;
+  data?: { reason?: string; recovery?: { hint?: string } };
+}> {
+  const worker = createWorkerHandler({
+    name: 'npi-providers-mcp-server',
+    title: 'npi-providers-mcp-server',
+    resources: [providerResource],
+  });
+  const response = await worker.fetch(
+    new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json',
+        'MCP-Protocol-Version': PROTOCOL_REVISION,
+        'Mcp-Method': 'resources/read',
+        'Mcp-Name': uri,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'resources/read',
+        params: {
+          uri,
+          _meta: {
+            'io.modelcontextprotocol/protocolVersion': PROTOCOL_REVISION,
+            'io.modelcontextprotocol/clientInfo': {
+              name: 'provider-resource-test',
+              version: '1.0.0',
+            },
+            'io.modelcontextprotocol/clientCapabilities': {},
+          },
+        },
+      }),
+    }),
+    {},
+    { waitUntil: () => {}, passThroughOnException: () => {}, props: {} },
+  );
+  const text = await response.text();
+  const frame =
+    text.startsWith('event:') || text.startsWith('data:')
+      ? text
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('\n')
+      : text;
+  return (JSON.parse(frame) as { error: Awaited<ReturnType<typeof readResourceError>> }).error;
+}
 
 describe('providerResource', () => {
   it('returns the decoded record for a known NPI', async () => {
@@ -71,6 +130,17 @@ describe('providerResource', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const params = providerResource.params!.parse({ npi: '1720034425' });
     await expect(providerResource.handler(params, ctx())).rejects.toMatchObject({
+      code: JsonRpcErrorCode.ValidationError,
+      data: { reason: 'invalid_npi_format' },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('carries the declared invalid_npi_format hint on the resources/read wire (#13)', async () => {
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('unmocked fetch'));
+    vi.stubGlobal('fetch', fetchSpy);
+    const error = await readResourceError('npi://provider/1720034425');
+    expect(error).toMatchObject({
       code: JsonRpcErrorCode.ValidationError,
       data: {
         reason: 'invalid_npi_format',

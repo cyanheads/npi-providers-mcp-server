@@ -34,9 +34,7 @@ export const taxonomyResource = resource('npi://taxonomy/{code}', {
   handler(params, ctx) {
     const entry = getTaxonomyService().get(params.code);
     if (!entry) {
-      throw ctx.fail('no_match', `No NUCC taxonomy entry for code ${params.code}.`, {
-        ...ctx.recoveryFor('no_match'),
-      });
+      throw ctx.fail('no_match', `No NUCC taxonomy entry for code ${params.code}.`);
     }
     return entry;
   },

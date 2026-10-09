@@ -456,7 +456,6 @@ export const getProviderTool = tool('npi_get_provider', {
         throw ctx.fail(
           'invalid_npi_format',
           `Every requested NPI failed the NPI check digit: ${invalidList}.`,
-          { ...ctx.recoveryFor('invalid_npi_format') },
         );
       }
       const invalidNote =
@@ -466,7 +465,6 @@ export const getProviderTool = tool('npi_get_provider', {
       throw ctx.fail(
         'none_found',
         `None of the ${unique.length} requested NPI(s) returned a record.${invalidNote}`,
-        { ...ctx.recoveryFor('none_found') },
       );
     }
 

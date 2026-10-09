@@ -42,15 +42,11 @@ export const providerResource = resource('npi://provider/{npi}', {
 
   async handler(params, ctx) {
     if (!hasValidNpiCheckDigit(params.npi)) {
-      throw ctx.fail('invalid_npi_format', `NPI ${params.npi} fails the NPI check digit.`, {
-        ...ctx.recoveryFor('invalid_npi_format'),
-      });
+      throw ctx.fail('invalid_npi_format', `NPI ${params.npi} fails the NPI check digit.`);
     }
     const record = await getNppesService().getByNumber(params.npi, ctx);
     if (!record) {
-      throw ctx.fail('no_record', `No NPPES record for NPI ${params.npi}.`, {
-        ...ctx.recoveryFor('no_record'),
-      });
+      throw ctx.fail('no_record', `No NPPES record for NPI ${params.npi}.`);
     }
     return record;
   },

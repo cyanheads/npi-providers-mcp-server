@@ -7,7 +7,7 @@
  */
 
 import { JsonRpcErrorCode, type McpError, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { getProviderTool } from '@/mcp-server/tools/definitions/get-provider.tool.js';
 import { initNppesService, NppesService } from '@/services/nppes/nppes-service.js';
@@ -524,17 +524,24 @@ describe('getProviderTool', () => {
     ['an all-invalid batch', ['1720034425', '1720034423']],
   ])('throws invalid_npi_format without any lookup for %s (#13)', async (_label, npis) => {
     const fetchSpy = stubRaw({});
-    const err = (await Promise.resolve(
-      getProviderTool.handler(getProviderTool.input.parse({ npis }), ctx()),
-    ).catch((error: unknown) => error)) as McpError;
-    expect(err).toMatchObject({
+    // runToolContract applies the declared-recovery fill the production factory does.
+    const result = await runToolContract(getProviderTool, { npis });
+    expect(result.isError).toBe(true);
+    const { error } = result.structuredContent as {
+      error: {
+        code: number;
+        message: string;
+        data: { reason: string; recovery?: { hint: string } };
+      };
+    };
+    expect(error).toMatchObject({
       code: JsonRpcErrorCode.ValidationError,
       data: {
         reason: 'invalid_npi_format',
         recovery: { hint: expect.stringMatching(/check digit/i) },
       },
     });
-    expect(err.message).toContain('1720034425');
+    expect(error.message).toContain('1720034425');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

@@ -319,7 +319,7 @@ export class NppesService {
         }
 
         const validated = validateResults(parsed);
-        if ('errors' in validated) this.throwForErrors(validated.errors, ctx);
+        if ('errors' in validated) this.throwForErrors(validated.errors);
         return validated.results;
       },
       {
@@ -335,14 +335,13 @@ export class NppesService {
    * Map an `Errors[]` body to a typed throw. All three field-error reasons
    * (`no_search_criteria`, `invalid_npi_format`, `invalid_search_field`) are
    * semantic `ValidationError`s; the distinction is carried in `data.reason` for the contract.
-   * Deterministic — `retryable: false` so `withRetry` fails fast.
+   * Deterministic — `retryable: false` so `withRetry` fails fast. The framework
+   * fills the calling definition's declared recovery hint from `data.reason`.
    */
-  private throwForErrors(errors: RawNppesError[], ctx: Context): never {
-    const reason = reasonForErrorNumber(errors[0]?.number);
+  private throwForErrors(errors: RawNppesError[]): never {
     throw validationError(describeErrors(errors), {
-      reason,
+      reason: reasonForErrorNumber(errors[0]?.number),
       retryable: false,
-      ...ctx.recoveryFor(reason),
     });
   }
 

@@ -345,9 +345,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
   async handler(input, ctx) {
     // Validate the specialty/taxonomy_description XOR before any work.
     if (input.specialty?.trim() && input.taxonomy_description?.trim()) {
-      throw ctx.fail('conflicting_specialty', undefined, {
-        ...ctx.recoveryFor('conflicting_specialty'),
-      });
+      throw ctx.fail('conflicting_specialty');
     }
 
     // The registry rejects any mix of individual (NPI-1) and organization (NPI-2)
@@ -403,7 +401,6 @@ export const searchProvidersTool = tool('npi_search_providers', {
           inactive
             ? `Specialty "${input.specialty}" matched no active NUCC taxonomy. It matched only codes NUCC marks inactive: ${inactive}.`
             : `Specialty "${input.specialty}" matched no NUCC taxonomy.`,
-          { ...ctx.recoveryFor('unresolved_specialty') },
         );
       }
       // The NPPES API matches `taxonomy_description` against the taxonomy's
@@ -443,7 +440,7 @@ export const searchProvidersTool = tool('npi_search_providers', {
       firstName || lastName || organizationName || taxonomyDescription || city || postalCode,
     );
     if (!hasCriterion) {
-      throw ctx.fail('no_search_criteria', undefined, { ...ctx.recoveryFor('no_search_criteria') });
+      throw ctx.fail('no_search_criteria');
     }
 
     const params: NppesSearchParams = {
