@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-09-24 23:43:25
+Generated on: 2026-10-09 06:34:46
 
 ```text
 npi-providers-mcp-server/
@@ -130,10 +130,12 @@ npi-providers-mcp-server/
 │   ├── clean.ts
 │   ├── devcheck.ts
 │   ├── generate-taxonomy-data.ts
+│   ├── install-otel.ts
 │   ├── lint-mcp.ts
 │   ├── lint-packaging.ts
 │   ├── list-skills.ts
 │   ├── nucc-taxonomy-csv.ts
+│   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
 ├── src/
