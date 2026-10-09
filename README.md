@@ -7,7 +7,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.4.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/npi-providers-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.0.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/%40cyanheads%2Fnpi-providers-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/npi-providers-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.0-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.4.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/npi-providers-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.2.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/%40cyanheads%2Fnpi-providers-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/npi-providers-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -52,33 +52,24 @@ All resource data is also reachable via tools; the resources are convenience twi
 
 ### `npi_search_providers` <sub>tool</sub>
 
-- Search by `name_search` shortcut, explicit `first_name` / `last_name`, `organization_name`, `city` / `state` / `postal_code`, and `provider_type` (`individual` / `organization`); at least one criterion is required and the registry rejects state-only searches. Person names search individuals and `organization_name` searches organizations, so mixing the two sides (directly or through `provider_type`) fails before any registry request
-- Plain-language `specialty` resolves through the bundled NUCC taxonomy to the registry's exact description before searching, echoed back via `resolvedTaxonomies` / `appliedTaxonomyDescription`; inactive NUCC codes are never resolved. `taxonomy_description` is an escape hatch for an already-known exact description (mutually exclusive with `specialty`)
-- Trailing-wildcard (`*`) matching on names, organization, and `city` requires at least 2 leading characters; `postal_code` takes 5 or 9 digits, or a 2–9 digit prefix ending in `*` (`98*`, `981*`)
-- Name searches also match former and other names, and the registry sorts by current name; a row matched through one names it in `matchedOtherName` (an exact `first_name` alone never marks a row, since the registry also matches first-name variants)
-- Each row's `city` / `state` / `postalCode` is the primary practice location. A location search matches practice addresses only, never mailing addresses: a row is returned only when the primary practice location or another practice location matches every requested location field (any other row the registry returns is filtered out, with a `notice` counting it), and a row kept on another practice location names it in `matchedLocation`
-- `limit` 1–200 (default 10), `skip` 0–1000; the registry never reports a true match total, and the response discloses page-size-not-total via `truncated` / `notice`. A full page names the next page in `nextPage`; one search reaches only its first 1200 matches, so the terminal window (`skip` 1000, `limit` 200) instead returns `continuationPostalCodes` — `postal_code` prefixes to re-run the same search with, deduplicating by NPI. That split cannot go below a 5-digit ZIP or reach practice addresses outside the US, and the notice says so
+- Inputs: `name_search` or `first_name` / `last_name` (individuals), `organization_name` (organizations), `provider_type`, `city` / `state` / `postal_code` (practice addresses only), and a plain-language `specialty` resolved through the bundled NUCC taxonomy, or an exact `taxonomy_description` (never both). At least one criterion is required, state alone is rejected, and individual and organization criteria can't be mixed. A trailing `*` needs at least 2 leading characters; `postal_code` takes 5 or 9 digits or a 2–9 digit prefix ending in `*`. `limit` 1–200 (default 10), `skip` 0–1000
+- Output: compact rows (`npi`, name, primary taxonomy, primary practice `city` / `state` / `postalCode`, `status`), with `matchedLocation` / `matchedOtherName` naming the practice location or other name a row matched through, and `resolvedTaxonomies` / `appliedTaxonomyDescription` echoing the specialty resolution. No true total is reported: a full page names `nextPage`, and the terminal window (`skip` 1000, `limit` 200) returns `continuationPostalCodes` that continue the search
 - Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `mixed_provider_criteria`, `unresolved_specialty`, `invalid_search_field`
 
 ---
 
 ### `npi_get_provider` <sub>tool</sub>
 
-- Accepts a single NPI or up to 10; each must be exactly 10 digits, and each is checked against its NPI check digit before any API call
-- Returns every taxonomy (with primary flag, license number and state), practice addresses with phone and fax, credential, sex, sole-proprietor flag, enumeration and last-updated dates, secondary identifiers, and FHIR/Direct endpoints (with their descriptions and routing address)
-- Only LOCATION (practice) address rows are kept for individual providers, so their mailing address — often a home address — is withheld; organizations keep both LOCATION and MAILING rows
-- Four-way partition: `found` (resolved records), `notFound` (confirmed absence — deactivated or never enumerated), `errored` (upstream failure, distinct from absence — retry these), `invalid` (failed the NPI check digit — never looked up)
-- Throws `invalid_npi_format` when every requested NPI fails the check digit, and `none_found` only when every NPI looked up is a confirmed absence; an upstream failure on any NPI surfaces as that underlying error instead
+- Accepts `npis`: a single NPI or up to 10, each exactly 10 digits and checked against its NPI check digit before any API call
+- Partitions the batch into `found` (decoded records: taxonomies with license, practice addresses, credential, identifiers, FHIR/Direct endpoints, status — only LOCATION address rows for individual providers, so their mailing address is withheld), `notFound` (confirmed absence), `errored` (upstream failure — retry these), and `invalid` (failed the check digit, never looked up)
+- Typed error reasons: `invalid_npi_format` (every NPI failed the check digit), `none_found` (every NPI looked up is a confirmed absence); an upstream failure surfaces as that underlying error instead
 
 ---
 
 ### `npi_lookup_taxonomy` <sub>tool</sub>
 
-- Three modes: `resolve` (plain-language term → matching codes/descriptions), `get` (exact code → full entry, including NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by grouping and NPI `section`)
-- Every entry carries `status` (`active` / `inactive`) and, for an inactive code, the `replacedBy` code NUCC names; `resolve` never returns inactive codes, while `get` and `browse` still do. A query that matches only inactive codes fails with `no_match` naming them and their replacements
-- Credential abbreviations resolve, dotted or not (`rn`, `R.N.`, `np`, `pa`, `crna`, `lpn`, `lvn`, `emt`, `er`). A query made only of generic words, singular or plural (`physician`, `doctors`, `M.D.`, `specialist`, `providers`), names no specialty, so it fails with `no_match` and a hint to `browse`, rather than matching an unrelated word
-- `resolve` / `browse` cap results at `limit` (≤50, default 20) and disclose `truncated`; page past the cap with `skip` (0–1000, raised by `limit` each call)
-- A resolved entry's `specialization` (or `classification` when specialization is absent) is the exact value `npi_search_providers.taxonomy_description` accepts
+- Modes: `resolve` (`query` → matching active codes), `get` (exact `code` → full entry with NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by `grouping` and NPI `section`); `resolve` / `browse` take `limit` (≤50, default 20) and `skip` (0–1000) and disclose `truncated`
+- Every entry carries `status` (`active` / `inactive`) and an inactive code's `replacedBy`; `resolve` excludes inactive codes, while `get` and `browse` return them. A resolved entry's `specialization` (or `classification` when absent) is the exact value `npi_search_providers.taxonomy_description` accepts
 - Typed error reasons: `no_match`, `missing_argument`
 
 ---
@@ -233,6 +224,7 @@ No required variables — the server runs out of the box against the keyless NPP
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
 | `MCP_SESSION_MODE` | HTTP session handling: `stateless`, `stateful`, or `auto`. This server pins `stateless`; the schema default `auto` resolves to `stateful`. | `stateless` |
 | `MCP_LOG_LEVEL` | Log level (RFC 5424). | `info` |
+| `LOG_TOOL_FAILURE_PAYLOADS` | Log each failed tool call's arguments and result, redacted by key name and capped at `LOG_TOOL_FAILURE_PAYLOAD_MAX_BYTES` (default `16384`). A secret inside a free-form value is not redacted. | `false` |
 | `STORAGE_PROVIDER_TYPE` | Storage backend. | `in-memory` |
 | `OTEL_ENABLED` | Enable [OpenTelemetry instrumentation](https://github.com/cyanheads/mcp-ts-core/tree/main/docs/telemetry) (spans, metrics, completion logs). | `false` |
 
