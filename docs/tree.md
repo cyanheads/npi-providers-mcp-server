@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-10-09 06:34:46
+Generated on: 2026-10-26 06:51:50
 
 ```text
 npi-providers-mcp-server/
@@ -28,6 +28,7 @@ npi-providers-mcp-server/
 │   ├── 0.2.x/
 │   ├── 0.3.x/
 │   ├── 0.4.x/
+│   ├── 0.5.x/
 │   └── template.md
 ├── docs/
 │   └── design.md
@@ -39,6 +40,8 @@ npi-providers-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -138,6 +141,9 @@ npi-providers-mcp-server/
 │   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
+├── skills/
+│   └── npi-providers-guide/
+│       └── SKILL.md
 ├── src/
 │   ├── config/
 │   │   └── server-config.ts
@@ -166,13 +172,16 @@ npi-providers-mcp-server/
 │   │       ├── taxonomy-data.ts
 │   │       ├── taxonomy-service.ts
 │   │       └── types.ts
+│   ├── utils/
+│   │   └── limit-clamp.ts
 │   └── index.ts
 ├── tests/
 │   ├── fuzz/
 │   │   └── nppes-response.fuzz.test.ts
 │   ├── integration/
 │   │   ├── correctness-boundaries.integration.test.ts
-│   │   └── nppes-live.integration.test.ts
+│   │   ├── nppes-live.integration.test.ts
+│   │   └── startup-config.integration.test.ts
 │   ├── mcp-server/
 │   │   ├── resources/
 │   │   │   ├── provider.resource.test.ts
@@ -184,6 +193,7 @@ npi-providers-mcp-server/
 │   ├── prompts/
 │   ├── resources/
 │   ├── scripts/
+│   │   ├── mcpb-runtime-skills.test.ts
 │   │   └── nucc-taxonomy-csv.test.ts
 │   ├── services/
 │   │   ├── nppes/
@@ -192,7 +202,9 @@ npi-providers-mcp-server/
 │   │       └── taxonomy-service.test.ts
 │   ├── smoke/
 │   │   └── public-surface.smoke.test.ts
-│   └── tools/
+│   ├── tools/
+│   └── utils/
+│       └── limit-clamp.test.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitattributes
@@ -209,8 +221,10 @@ npi-providers-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── NOTICE
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json

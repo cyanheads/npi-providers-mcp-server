@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.5.0](changelog/0.5.x/0.5.0.md) — 2026-10-25
+
+Provider query controls and specialty guidance
+
 ## [0.4.1](changelog/0.4.x/0.4.1.md) — 2026-10-08
 
 Moves to mcp-ts-core 0.13.14: error results carry a request id, integer NPIs and postal codes, numeric strings for limit and skip, and null optional arguments are repaired before validation, the registry entries launch with npx, and the Docker image installs dependencies on the build platform.
