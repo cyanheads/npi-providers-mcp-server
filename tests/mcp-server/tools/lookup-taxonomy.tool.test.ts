@@ -8,7 +8,10 @@ import type { z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { lookupTaxonomyTool } from '@/mcp-server/tools/definitions/lookup-taxonomy.tool.js';
+import {
+  createLookupTaxonomyTool,
+  lookupTaxonomyTool,
+} from '@/mcp-server/tools/definitions/lookup-taxonomy.tool.js';
 import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 beforeAll(() => {
@@ -28,6 +31,105 @@ async function caught(
 }
 
 describe('lookupTaxonomyTool', () => {
+  it.each(['resolve', 'browse'] as const)(
+    'configured %s limits advertise/reject the opt-out bound',
+    async (mode) => {
+      const strict = createLookupTaxonomyTool(false);
+      const input = { mode, ...(mode === 'resolve' ? { query: 'nurse' } : {}), limit: 51 };
+      expect(strict.input.toJSONSchema().properties?.limit).toMatchObject({ maximum: 50 });
+      expect(strict.input.safeParse(input).success).toBe(false);
+      expect((await runToolContract(strict, input)).isError).toBe(true);
+    },
+  );
+
+  it.each([0, -1, 1.5])('rejects invalid limit %s in both configurations', (limit) => {
+    for (const clamp of [false, true]) {
+      for (const mode of ['browse', 'resolve']) {
+        expect(
+          createLookupTaxonomyTool(clamp).input.safeParse({ mode, query: 'nurse', limit }).success,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it.each([
+    { mode: 'resolve', code: '' },
+    { mode: 'resolve', grouping: '' },
+    { mode: 'resolve', section: 'Individual' },
+    { mode: 'browse', query: '' },
+    { mode: 'browse', code: '' },
+    { mode: 'get', limit: 20 },
+    { mode: 'get', query: '' },
+    { mode: 'get', grouping: '' },
+    { mode: 'get', section: 'Individual' },
+  ] as const)('rejects wrong-mode fields before missing arguments/defaults: %j', async (input) => {
+    const result = await runToolContract(lookupTaxonomyTool, input);
+    const { error } = result.structuredContent as {
+      error: { data: { reason: string; recovery: { hint: string } } };
+    };
+    expect(error.data.reason).toBe('wrong_mode_argument');
+    expect(error.data.recovery.hint).toContain('Use query with resolve');
+    expect(result.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('does not accept:'),
+        }),
+      ]),
+    );
+  });
+
+  it.each([
+    { mode: 'resolve', query: 'nurse', limit: 99 },
+    { mode: 'resolve', query: 'cardiologist', limit: 99 },
+    { mode: 'resolve', query: 'nurse', limit: 99, skip: 1000 },
+    { mode: 'browse', grouping: 'not-a-group', limit: 99 },
+    { mode: 'browse', limit: 99, skip: 1000 },
+  ] as const)('retains clamp notices on capped, short and empty pages: %j', async (input) => {
+    const result = await run(input);
+    expect(result.isError).toBe(false);
+    expect(result.structured.notice).toMatch(/99.*50/);
+    expect(result.text).toContain(result.structured.notice);
+  });
+  it('advertises a flat enum mode and optional pagination without defaults', () => {
+    expect(lookupTaxonomyTool.input.toJSONSchema()).toMatchObject({
+      type: 'object',
+      required: ['mode'],
+      properties: { mode: { enum: ['resolve', 'get', 'browse'] } },
+    });
+    expect(lookupTaxonomyTool.input.parse({ mode: 'browse' })).toEqual({ mode: 'browse' });
+  });
+
+  it('clamps oversize browse limits and reports requested/applied values on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'browse', limit: 99 });
+    expect(structured.matches).toHaveLength(50);
+    expect(structured.notice).toMatch(/99.*50/);
+    expect(text).toMatch(/99.*50/);
+  });
+
+  it('renders the NUCC section without an entity-type inference', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '207RC0000X' });
+    expect(structured.matches?.[0]?.section).toBe('Individual');
+    expect(text).toContain('**Section:** Individual |');
+    expect(text).not.toMatch(/NPI-[12]/);
+  });
+
+  it.each([
+    ['225XR0403X', 'notes'],
+    ['207RC0000X', 'notes'],
+    ['102X00000X', 'definition'],
+  ])('converts known markup for %s on both tool surfaces', async (code, field) => {
+    const { structured, text } = await run({ mode: 'get', code });
+    const value = structured.matches?.[0]?.[field] as string;
+    expect(value).toContain('\n');
+    expect(value).not.toMatch(/<br\/>|<\/?ul>|<li>/);
+    expect(text).toContain(value);
+    if (code === '225XR0403X') expect(value.split('\n- ')).toHaveLength(6);
+  });
+  it('keeps business Group codes in the Individual NUCC section (characterization)', async () => {
+    const { structured } = await run({ mode: 'browse', grouping: 'Group', section: 'Individual' });
+    expect(structured.matches?.map((entry) => entry.code)).toEqual(['193200000X', '193400000X']);
+  });
   it('resolve: maps a plain-language specialty to matching entries', async () => {
     const input = lookupTaxonomyTool.input.parse({ mode: 'resolve', query: 'cardiologist' });
     const result = await lookupTaxonomyTool.handler(input, ctx());
@@ -49,8 +151,9 @@ describe('lookupTaxonomyTool', () => {
     expect(text).toContain('No taxonomy matched "constructor".');
   });
 
-  it('resolve: requires query in the advertised mode variant', () => {
-    expect(lookupTaxonomyTool.input.safeParse({ mode: 'resolve' }).success).toBe(false);
+  it('resolve: requires query through the handler contract', async () => {
+    const result = await run({ mode: 'resolve' });
+    expect(result.structured.error?.data?.reason).toBe('missing_argument');
   });
 
   it('resolve: throws missing_argument when query is blank', async () => {
@@ -85,8 +188,9 @@ describe('lookupTaxonomyTool', () => {
     expect((await caught(input, ctx()))?.data?.reason).toBe('no_match');
   });
 
-  it('get: requires code in the advertised mode variant', () => {
-    expect(lookupTaxonomyTool.input.safeParse({ mode: 'get' }).success).toBe(false);
+  it('get: requires code through the handler contract', async () => {
+    const result = await run({ mode: 'get' });
+    expect(result.structured.error?.data?.reason).toBe('missing_argument');
   });
 
   it('get: throws missing_argument when code is blank', async () => {
@@ -204,10 +308,10 @@ describe('lookupTaxonomyTool', () => {
     expect(getEnrichment(c).notice).toBeDefined();
   });
 
-  it('get: rejects browse-only arguments instead of silently stripping them (#7)', () => {
-    expect(
-      lookupTaxonomyTool.input.safeParse({ mode: 'get', code: '207RC0000X', skip: 9 }).success,
-    ).toBe(false);
+  it('get: rejects browse-only arguments instead of silently stripping them (#7)', async () => {
+    const result = await run({ mode: 'get', code: '207RC0000X', skip: 9 });
+    expect(result.structured.error?.data?.reason).toBe('wrong_mode_argument');
+    expect(result.text).toContain('does not accept: skip');
   });
 
   it('format: renders a single entry with code and hierarchy', () => {
@@ -284,6 +388,13 @@ const PERFUSIONIST_NOTES =
   'Source:  Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]';
 
 describe('lookupTaxonomyTool NUCC Notes (#11)', () => {
+  it('retains literal reference markers on both surfaces', async () => {
+    const { structured, text } = await run({ mode: 'get', code: '3336C0004X' });
+    expect(structured.matches?.[0]?.notes).toContain('<795>');
+    expect(structured.matches?.[0]?.notes).toContain('<797>');
+    expect(text).toContain('<795>');
+    expect(text).toContain('<797>');
+  });
   it('get: returns the trimmed Notes cell byte for byte on both surfaces', async () => {
     const { structured, text } = await run({ mode: 'get', code: '242T00000X' });
     expect(structured.matches?.[0]?.notes).toBe(PERFUSIONIST_NOTES);

@@ -44,7 +44,8 @@ function main(): void {
  * © American Medical Association on behalf of the National Uniform Claim
  * Committee (NUCC). Used under the NUCC permission (royalty-free, non-exclusive)
  * on the condition that this notice accompanies any copy; redistributed
- * unmodified beyond formatting. See the repository NOTICE file.
+ * unmodified beyond formatting (known HTML breaks/lists become plain text).
+ * See the repository NOTICE file.
  */
 
 import type { TaxonomyEntry } from './types.js';

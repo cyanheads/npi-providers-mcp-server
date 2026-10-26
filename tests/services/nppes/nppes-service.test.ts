@@ -804,6 +804,54 @@ describe('NppesService Errors[]-on-200 detection', () => {
 });
 
 describe('NppesService.search', () => {
+  it('preserves ordering and conservative other-name inference even when aliases are disabled', async () => {
+    stubJson({
+      results: [
+        {
+          ...FULL_INDIVIDUAL.results[0],
+          basic: { first_name: 'ROBERT', last_name: 'SMITH', status: 'A' },
+          other_names: [{ first_name: 'BOB', last_name: 'SMITH', type: 'Former Name' }],
+        },
+        {
+          ...FULL_INDIVIDUAL.results[0],
+          basic: { first_name: 'BOB', last_name: 'SMITH', status: 'A' },
+        },
+      ],
+    });
+    const rows = await svc.search(
+      { firstName: 'Bob', lastName: 'Smith', useFirstNameAlias: false, limit: 10, skip: 0 },
+      ctx,
+    );
+    expect(rows.map(({ name }) => name)).toEqual(['ROBERT SMITH', 'BOB SMITH']);
+    expect(rows.every((row) => row.matchedOtherName === undefined)).toBe(true);
+  });
+
+  it.each([
+    [true, 'True'],
+    [false, 'False'],
+    [undefined, null],
+  ] as const)(
+    'serializes the supplied alias control %s exactly',
+    async (useFirstNameAlias, expected) => {
+      const fetchSpy = stubJson(FULL_INDIVIDUAL);
+      const rows = await svc.search(
+        {
+          firstName: 'Bob',
+          limit: 10,
+          skip: 0,
+          ...(useFirstNameAlias !== undefined ? { useFirstNameAlias } : {}),
+        },
+        ctx,
+      );
+      expect(
+        new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams.get('use_first_name_alias'),
+      ).toBe(expected);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.name).toBe('JOSEPH A ABATE');
+      expect(rows[0]).not.toHaveProperty('matchedOtherName');
+    },
+  );
+
   /** The query string of the one registry request a search made. */
   function sentQuery(fetchSpy: ReturnType<typeof vi.fn>): Record<string, string> {
     expect(fetchSpy).toHaveBeenCalledTimes(1);

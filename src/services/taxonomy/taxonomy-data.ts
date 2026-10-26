@@ -13,7 +13,8 @@
  * © American Medical Association on behalf of the National Uniform Claim
  * Committee (NUCC). Used under the NUCC permission (royalty-free, non-exclusive)
  * on the condition that this notice accompanies any copy; redistributed
- * unmodified beyond formatting. See the repository NOTICE file.
+ * unmodified beyond formatting (known HTML breaks/lists become plain text).
+ * See the repository NOTICE file.
  */
 
 import type { TaxonomyEntry } from './types.js';
@@ -111,7 +112,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     classification: 'Poetry Therapist',
     displayName: 'Poetry Therapist',
     definition:
-      "A medical or mental health professional who has attained credentials after satisfactorily completing a poetry therapy training program approved by the National Federation for Biblio/Poetry Therapy (NFBPT). Training includes didactic work, peer group experience, and supervised practicum.<br/>An NFBPT credentialed certified poetry therapist (CPT) or registered poetry therapist (PTR) integrates discussion of published literature and reflective or creative writing into the psychotherapeutic process to achieve goals of emotional well-being, symptom reduction, and improved interpersonal communication.<br/>Certified poetry therapists and registered poetry therapists are licensed mental health professionals with advanced training in the theory and practice of poetry therapy. CPTs and PTRs are qualified to work independently with emotionally troubled populations in clinical, rehabilitative, community and educational institutions. They also work with emotionally healthy individuals adjusting to developmental issues, life crises, or disabilities. The PTR completes an advanced level of training and fieldwork, commensurate with the highest levels of clinical practice. The terms poetry therapy, applied poetry facilitation, journal therapy, bibliotherapy, biblio/poetry therapy, and poetry/journal therapy reflect the interactive use of literature and/or writing to promote personal growth and emotional healing. In addition to poetry, poetry therapy applies all forms or written and spoken language including story, myth, folk and fairy tale and other genres of poetic expression as well as journal, memoir, and narrative. The poetry therapy process integrates discussion of published literature and reflective or creative writing for expression and communication of thoughts and feelings to facilitate participants' emotional well-being. The field of poetry therapy encompasses all of these modalities, though only a duly trained and licensed clinical practitioner can be credentialed as CPT or PTR.",
+      "A medical or mental health professional who has attained credentials after satisfactorily completing a poetry therapy training program approved by the National Federation for Biblio/Poetry Therapy (NFBPT). Training includes didactic work, peer group experience, and supervised practicum.\nAn NFBPT credentialed certified poetry therapist (CPT) or registered poetry therapist (PTR) integrates discussion of published literature and reflective or creative writing into the psychotherapeutic process to achieve goals of emotional well-being, symptom reduction, and improved interpersonal communication.\nCertified poetry therapists and registered poetry therapists are licensed mental health professionals with advanced training in the theory and practice of poetry therapy. CPTs and PTRs are qualified to work independently with emotionally troubled populations in clinical, rehabilitative, community and educational institutions. They also work with emotionally healthy individuals adjusting to developmental issues, life crises, or disabilities. The PTR completes an advanced level of training and fieldwork, commensurate with the highest levels of clinical practice. The terms poetry therapy, applied poetry facilitation, journal therapy, bibliotherapy, biblio/poetry therapy, and poetry/journal therapy reflect the interactive use of literature and/or writing to promote personal growth and emotional healing. In addition to poetry, poetry therapy applies all forms or written and spoken language including story, myth, folk and fairy tale and other genres of poetic expression as well as journal, memoir, and narrative. The poetry therapy process integrates discussion of published literature and reflective or creative writing for expression and communication of thoughts and feelings to facilitate participants' emotional well-being. The field of poetry therapy encompasses all of these modalities, though only a duly trained and licensed clinical practitioner can be credentialed as CPT or PTR.",
     notes: 'Source: The National Federation for Biblio/Poetry Therapy [7/1/2007: new]',
     section: 'Individual',
     status: 'active',
@@ -171,7 +172,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A psychologist with a proficiency that involves the application of psychological treatment of addiction stemming from the use of alcohol and other psychoactive substances (e.g., nicotine, marijuana, cocaine, heroin) or behavioral addictions (e.g., gambling) with the aim of cessation or reduction of use and/or the amelioration of emotional, behavioral, interpersonal and other problems arising from the addictive behavior.',
     notes:
-      'Source: American Psychological Association, www.apa.org  [1/1/2019: new definition]<br/>Additional Resources:  The APA proficiency is Addiction Psychology.',
+      'Source: American Psychological Association, www.apa.org  [1/1/2019: new definition]\nAdditional Resources:  The APA proficiency is Addiction Psychology.',
     section: 'Individual',
     status: 'active',
   },
@@ -184,7 +185,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A psychologist who specializes in geropsychology, which applies the knowledge and methods of psychology to understanding and helping older persons and their families to maintain well-being, overcome problems and achieve maximum potential during later life. Professional geropsychology appreciates the wide diversity among older adults, the complex ethical issues that can arise in geriatric practice and the importance of interdisciplinary models of care.',
     notes:
-      'Source:  American Psychological Association, www.apa.org  [1/1/2019: new definition]<br/><br/>Additional Resources:  The APA specialty is "Geropsychology."',
+      'Source:  American Psychological Association, www.apa.org  [1/1/2019: new definition]\n\nAdditional Resources:  The APA specialty is "Geropsychology."',
     section: 'Individual',
     status: 'active',
   },
@@ -197,7 +198,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A psychologist who reflects an experimental-clinical approach distinguished by use of principles of human learning and development and theories of cognitive processing to promote meaningful change in maladaptive human behavior and thinking.',
     notes:
-      'Source:  American Psychological Association, www.apa.org  [1/1/2007: title modified, 1/1/2019: new definition]<br/><br/>Additional Resources:  The APA specialty is "Behavioral and Cognitive Psychology."',
+      'Source:  American Psychological Association, www.apa.org  [1/1/2007: title modified, 1/1/2019: new definition]\n\nAdditional Resources:  The APA specialty is "Behavioral and Cognitive Psychology."',
     section: 'Individual',
     status: 'active',
   },
@@ -234,7 +235,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A psychologist who develops and applies scientific knowledge to the delivery of psychological services to infants, toddlers, children and adolescents within their social context.  Of particular importance to the specialty of clinical child psychology is an understanding of the basic psychological needs of children and adolescents, and how the family and other social contexts influence the socio-emotional adjustment, cognitive development, behavioral adaptation and health status of children and adolescents.',
     notes:
-      'Source:  American Psychological Association, www.apa.org  [1/1/2007: title modified, 1/1/2019: new definition]<br/><br/>Additional Resources:  The APA specialty is "Clinical Child Psychology."',
+      'Source:  American Psychological Association, www.apa.org  [1/1/2007: title modified, 1/1/2019: new definition]\n\nAdditional Resources:  The APA specialty is "Clinical Child Psychology."',
     section: 'Individual',
     status: 'active',
   },
@@ -270,7 +271,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A psychologist whose specialty is founded on principles of systems theory with the interpersonal system of the family the focus of assessment, intervention and research.',
     notes:
-      'Source:  American Psychological Association, www.apa.org  [1/1/2019: new definition]<br/><br/>Additional Resources:  The APA specialty is "Couple and Family Psychology."',
+      'Source:  American Psychological Association, www.apa.org  [1/1/2019: new definition]\n\nAdditional Resources:  The APA specialty is "Couple and Family Psychology."',
     section: 'Individual',
     status: 'active',
   },
@@ -293,7 +294,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Health',
     displayName: 'Health Psychologist',
     definition:
-      'A psychologist who specializes in clinical health psychology that investigates and implements clinical services across diverse populations and settings to promote health and well-being and to prevent, treat, and manage illness and disability.  Clinical health psychology sees health as the confluence of psychological, social, cultural, and biological factors and applies this understanding to professional activities including:<br/>* Research<br/>* Clinical service<br/>* Consulting with, educating, and supervising other health care providers and psychologists<br/>* Advising organizations, institutions, the public, and policymakers',
+      'A psychologist who specializes in clinical health psychology that investigates and implements clinical services across diverse populations and settings to promote health and well-being and to prevent, treat, and manage illness and disability.  Clinical health psychology sees health as the confluence of psychological, social, cultural, and biological factors and applies this understanding to professional activities including:\n* Research\n* Clinical service\n* Consulting with, educating, and supervising other health care providers and psychologists\n* Advising organizations, institutions, the public, and policymakers',
     notes:
       'Source:  American Psychological Association, www.apa.org    [1/1/2007: new, 7/1/2008: definition added, source added, 1/1/2019: definition modified, source modified]  Additional Resources:  The APA specialty is "Clinical Health Psychology."',
     section: 'Individual',
@@ -378,7 +379,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A psychologist who specializes in group psychology and group psychotherapy that is an evidenced-based specialty that prepares group leaders to identify and capitalize on developmental and healing possibilities embedded in the interpersonal/intrapersonal functioning of individual group members as well as collectively for the group.  Emphasis is placed on the use of group dynamics to assist and treat individual group members.  The specialty is applicable to all age groups, children, adolescents, adults and older adults, for a wide variety of conditions and concerns, and in numerous and diverse settings.',
     notes:
-      'Source:  American Psychological Association, www.apa.org  [1/1/2007: modified title, 1/1/2019: new definition]<br/><br/>Additional Resources:  The APA specialty is "Group Psychology and Group Psychotherapy."',
+      'Source:  American Psychological Association, www.apa.org  [1/1/2007: modified title, 1/1/2019: new definition]\n\nAdditional Resources:  The APA specialty is "Group Psychology and Group Psychotherapy."',
     section: 'Individual',
     status: 'active',
   },
@@ -562,7 +563,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Radiology',
     displayName: 'Radiology Chiropractor',
     definition:
-      'Chiropractic radiology is a referral specialty that provides consultation services at the request of other qualified doctors. Chiropractic radiologists provide consultation in health care facilities (private offices, hospitals and teaching institutions) to meet the needs of referring doctors and their patients. The quality of the consultative services by the chiropractic radiologist in independent practice is reflected by the quality of their professional credentials. Chiropractic radiologists recommend, supervise, and interpret radiologic studies as well as advanced imaging procedures. They advise referring physicians on the necessity and appropriateness of radiologic services and whether to select or to avoid certain diagnostic or clinical procedures. In some instances the radiologist may act as a private practitioner. They may conduct research and apply diagnostic radiologic procedures and may be called upon to act as expert witnesses in matters of litigation.<br/>Chiropractic radiologists are also concerned with imaging technology including image production, demonstration of normal and abnormal anatomy, and the interaction of energy and matter. The advances in the technological facets of radiology are so rapid that only qualified radiologists can reasonably be expected to maintain the high level of proficiency required to supervise and interpret these procedures. The practice of radiology continuously involves the application of this technology to patient imaging and treatment. It is now well recognized that chiropractic radiology includes, but is not limited to, plain film radiography, fluoroscopy, tomography, ultrasonography, radioisotope imaging, computed tomography, digital radiography, and magnetic resonance imaging. Individual practices may vary by intent, licensure, and scope of practice laws.',
+      'Chiropractic radiology is a referral specialty that provides consultation services at the request of other qualified doctors. Chiropractic radiologists provide consultation in health care facilities (private offices, hospitals and teaching institutions) to meet the needs of referring doctors and their patients. The quality of the consultative services by the chiropractic radiologist in independent practice is reflected by the quality of their professional credentials. Chiropractic radiologists recommend, supervise, and interpret radiologic studies as well as advanced imaging procedures. They advise referring physicians on the necessity and appropriateness of radiologic services and whether to select or to avoid certain diagnostic or clinical procedures. In some instances the radiologist may act as a private practitioner. They may conduct research and apply diagnostic radiologic procedures and may be called upon to act as expert witnesses in matters of litigation.\nChiropractic radiologists are also concerned with imaging technology including image production, demonstration of normal and abnormal anatomy, and the interaction of energy and matter. The advances in the technological facets of radiology are so rapid that only qualified radiologists can reasonably be expected to maintain the high level of proficiency required to supervise and interpret these procedures. The practice of radiology continuously involves the application of this technology to patient imaging and treatment. It is now well recognized that chiropractic radiology includes, but is not limited to, plain film radiography, fluoroscopy, tomography, ultrasonography, radioisotope imaging, computed tomography, digital radiography, and magnetic resonance imaging. Individual practices may vary by intent, licensure, and scope of practice laws.',
     notes: 'Source: American Chiropractic Board of Radiology, 2009 [7/1/2009: definition added]',
     section: 'Individual',
     status: 'active',
@@ -825,7 +826,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     classification: 'Advanced Practice Dental Therapist',
     displayName: 'Advanced Practice Dental Therapist',
     definition:
-      'An Advanced Practice Dental Therapist is:<br/>(1) A dental therapist who has completed additional training beyond basic dental therapy education and provides dental services in accordance with state advanced practice dental therapist laws or statutes; or<br/>(2) A dental hygienist with a graduate degree in advanced dental therapy prepared for independent and interdependent decision making and direct accountability for clinical judgment across the dental health care continuum.<br/>The individual has been authorized by the relevant state board or a tribal entity to provide services under the remote supervision of a dentist. The functions of the advanced practice dental therapist vary based on the needs of the dentist, the educational preparation of the advanced practice dental therapist and state dental practice acts and regulations.',
+      'An Advanced Practice Dental Therapist is:\n(1) A dental therapist who has completed additional training beyond basic dental therapy education and provides dental services in accordance with state advanced practice dental therapist laws or statutes; or\n(2) A dental hygienist with a graduate degree in advanced dental therapy prepared for independent and interdependent decision making and direct accountability for clinical judgment across the dental health care continuum.\nThe individual has been authorized by the relevant state board or a tribal entity to provide services under the remote supervision of a dentist. The functions of the advanced practice dental therapist vary based on the needs of the dentist, the educational preparation of the advanced practice dental therapist and state dental practice acts and regulations.',
     notes: 'Source: Summarized from Minnesota Statute 150A.106. [7/1/2012: new]',
     section: 'Individual',
     status: 'active',
@@ -2597,7 +2598,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A Neuromusculoskeletal Medicine and Osteopathic Manipulative Medicine physician trained to be responsible for the continuous care in the field of sports medicine encompasses increased knowledge and understanding of osteopathic principles and practice and heightened technical skills of osteopathic manipulative medicine and integrates each of these into the management of the individual engaged in physical exercise (sports) whether as an individual or in team participation.',
     notes:
-      'Source: American Osteopathic Association<br/>Additional Resources: AOA Osteopathic Board Certification in Neuromusculoskeletal Medicine; https://certification.osteopathic.org/sports-medicine/<br/>',
+      'Source: American Osteopathic Association\nAdditional Resources: AOA Osteopathic Board Certification in Neuromusculoskeletal Medicine; https://certification.osteopathic.org/sports-medicine/\n',
     section: 'Individual',
     status: 'active',
   },
@@ -2609,7 +2610,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'The Neuromusculoskeletal Medicine and Osteopathic Manipulative Medicine physician directs special attention to the neuromusculoskeletal system and its interaction with other body systems. Neuromusculoskeletal Medicine and Osteopathic Manipulative Medicine encompasses increased knowledge and understanding of osteopathic principles and practice and heightened technical skills of osteopathic manipulative medicine, and integrates each of these into the management of pediatric, adolescent, adult, and geriatric patients.',
     notes:
-      'Source: American Osteopathic Association, 2017 [7/1/2017: added definition]<br/>Additional Resources: American Osteopathic Board of Neuromusculoskeletal Medicine, 2017, http://www.osteopathic.org/certification',
+      'Source: American Osteopathic Association, 2017 [7/1/2017: added definition]\nAdditional Resources: American Osteopathic Board of Neuromusculoskeletal Medicine, 2017, http://www.osteopathic.org/certification',
     section: 'Individual',
     status: 'active',
   },
@@ -2680,7 +2681,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An allergy and immunology physician who specializes in clinical and laboratory immunology disease management..',
     notes:
-      'Source: National Uniform Claim Committee, 2022  <br/>Additional Resources: A certification was, but is no longer, issued by the American Board of Allergy and Immunology.',
+      'Source: National Uniform Claim Committee, 2022  \nAdditional Resources: A certification was, but is no longer, issued by the American Board of Allergy and Immunology.',
     section: 'Individual',
     status: 'active',
   },
@@ -2692,7 +2693,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "An anesthesiologist is trained to provide pain relief and maintenance, or restoration, of a stable condition during and immediately following an operation or an obstetric or diagnostic procedure. The anesthesiologist assesses the risk of the patient undergoing surgery and optimizes the patient's condition prior to, during and after surgery. In addition to these management responsibilities, the anesthesiologist provides medical management and consultation in pain management and critical care medicine. Anesthesiologists diagnose and treat acute, long-standing and cancer pain problems; diagnose and treat patients with critical illnesses or severe injuries; direct resuscitation in the care of patients with cardiac or respiratory emergencies, including the need for artificial ventilation; and supervise post-anesthesia recovery.",
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007:  added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Anesthesiology, 2007.  http://www.theaba.org/; American Osteopathic Board of Anesthesiology, 2007, http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Anesthesiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Anesthesiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007:  added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Anesthesiology, 2007.  http://www.theaba.org/; American Osteopathic Board of Anesthesiology, 2007, http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Anesthesiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Anesthesiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -2717,7 +2718,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An anesthesiologist, who specializes in critical care medicine diagnoses, treats and supports patients with multiple organ dysfunction. This specialist may have administrative responsibilities for intensive care units and may also facilitate and coordinate patient care among the primary physician, the critical care staff and other specialists.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007:  added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Anesthesiology, 2007.  http://www.theaba.org/; American Osteopathic Board of Anesthesiology, 2007, http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Anesthesiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Anesthesiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007:  added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Anesthesiology, 2007.  http://www.theaba.org/; American Osteopathic Board of Anesthesiology, 2007, http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Anesthesiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Anesthesiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -2743,7 +2744,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An anesthesiologist who provides a high level of care, either as a primary physician or consultant, for patients experiencing problems with acute, chronic and/or cancer pain in both hospital and ambulatory settings. Patient care needs are also coordinated with other specialists.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007:  added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Anesthesiology, 2007.  http://www.theaba.org/; American Osteopathic Board of Anesthesiology, 2007, http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Anesthesiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Anesthesiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007:  added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Anesthesiology, 2007.  http://www.theaba.org/; American Osteopathic Board of Anesthesiology, 2007, http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Anesthesiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Anesthesiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -2805,7 +2806,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A dermatopathologist has the expertise to diagnose and monitor diseases of the skin including infectious, immunologic, degenerative and neoplastic diseases. This entails the examination and interpretation of specially prepared tissue sections, cellular scrapings and smears of skin lesions by means of routine and special (electron and fluorescent) microscopes.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org  [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Dermatology, 2007.  http://www.abderm.org/; American Osteopathic Board of Dermatology, 2007. http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Dermatology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Dermatology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org  [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Dermatology, 2007.  http://www.abderm.org/; American Osteopathic Board of Dermatology, 2007. http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Dermatology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Dermatology.',
     section: 'Individual',
     status: 'active',
   },
@@ -2856,7 +2857,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An emergency physician focuses on the immediate decision making and action necessary to prevent death or any further disability both in the pre-hospital setting by directing emergency medical technicians and in the emergency department. The emergency physician provides immediate recognition, evaluation, care, stabilization and disposition of a generally diversified population of adult and pediatric patients in response to acute illness and injury.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Emergency Medicine, 2007.  http://www.abem.org/public/; American Osteopathic Board of Emergency Medicine, 2007. http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Emergency Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Emergency Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Emergency Medicine, 2007.  http://www.abem.org/public/; American Osteopathic Board of Emergency Medicine, 2007. http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Emergency Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Emergency Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -2921,7 +2922,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An emergency physician with special knowledge in sports medicine is responsible for continuous care in the field of sports medicine, not only for the enhancement of health and fitness, but also for the prevention and management of injury and illness. A sports medicine physician has knowledge and experience in the promotion of wellness and the role of exercise in promoting a healthy lifestyle. Knowledge of exercise physiology, biomechanics, nutrition, psychology, physical rehabilitation and epidemiology is essential to the practice of sports medicine.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Emergency Medicine, 2007.  http://www.abem.org/public/.   American Osteopathic Board of Emergency Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Emergency Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Emergency Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Emergency Medicine, 2007.  http://www.abem.org/public/.   American Osteopathic Board of Emergency Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Emergency Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Emergency Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -2934,7 +2935,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Medical toxicologists are physicians who specialize in the prevention, evaluation, treatment and monitoring of injury and illness from exposures to drugs and chemicals, as well as biological and radiological agents. Medical toxicologists care for people in clinical, academic, governmental and public health settings, and provide poison control center leadership. Important areas of medical toxicology include acute drug poisoning, adverse drug events, drug abuse, addiction and withdrawal, chemicals and hazardous materials, terrorism preparedness, venomous bites and stings and environmental and workplace exposures.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Emergency Medicine, 2007.  http://www.abem.org/public/.   American Osteopathic Board of Emergency Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Emergency Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Emergency Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Emergency Medicine, 2007.  http://www.abem.org/public/.   American Osteopathic Board of Emergency Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Emergency Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Emergency Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -2946,7 +2947,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Family Medicine is the medical specialty which is concerned with the total health care of the individual and the family. It is the specialty in breadth which integrates the biological, clinical, and behavioral sciences. The scope of family medicine is not limited by age, sex, organ system, or disease entity.',
     notes:
-      'Source:  American Board of Family Medicine [1/1/2007: changed title; 7/1/2007: added definition, added source; 7/1/2017: modified definition]<br/>Note:  The American Osteopathic Board of Family Physicians certification includes extensive use of Osteopathic Manipulative Treatment (OMT), which integrates the biological, clinical, and behavioral sciences.<br/>Additional Resources:  American Board of Family Medicine, www.theabfm.org.  American Osteopathic Board of Family Physicians, www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine. Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Physicians or the American Board of Family Medicine.',
+      'Source:  American Board of Family Medicine [1/1/2007: changed title; 7/1/2007: added definition, added source; 7/1/2017: modified definition]\nNote:  The American Osteopathic Board of Family Physicians certification includes extensive use of Osteopathic Manipulative Treatment (OMT), which integrates the biological, clinical, and behavioral sciences.\nAdditional Resources:  American Board of Family Medicine, www.theabfm.org.  American Osteopathic Board of Family Physicians, www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine. Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Physicians or the American Board of Family Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -2959,7 +2960,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A family medicine physician with multidisciplinary training in the unique physical, psychological and social characteristics of adolescents and their health care problems and needs.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Family Medicine, 2007.  http://www.theabfm.org/.  American Osteopathic Board of Family Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Family Medicine, 2007.  http://www.theabfm.org/.  American Osteopathic Board of Family Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3034,7 +3035,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "A family medicine physician with special knowledge of the aging process and special skills in the diagnostic, therapeutic, preventive and rehabilitative aspects of illness in the elderly. This specialist cares for geriatric patients in the patient's home, the office, long-term care settings such as nursing homes, and the hospital.",
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Family Medicine, 2007.  http://wwwtheabfm.org/.  American Osteopathic Board of Family Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Family Medicine, 2007.  http://wwwtheabfm.org/.  American Osteopathic Board of Family Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3072,7 +3073,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A family medicine physician that is trained to be responsible for continuous care in the field of sports medicine, not only for the enhancement of health and fitness, but also for the prevention of injury and illness. A sports medicine physician must have knowledge and experience in the promotion of wellness and the prevention of injury. Knowledge about special areas of medicine such as exercise physiology, biomechanics, nutrition, psychology, physical rehabilitation, epidemiology, physical evaluation, injuries (treatment and prevention and referral practice) and the role of exercise in promoting a healthy lifestyle are essential to the practice of sports medicine. The sports medicine physician requires special education to provide the knowledge to improve the health care of the individual engaged in physical exercise (sports) whether as an individual or in team participation.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Family Medicine, 2007.  http://www.theabfm.org/.  American Osteopathic Board of Family Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Family Medicine, 2007.  http://www.theabfm.org/.  American Osteopathic Board of Family Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Family Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Family Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3096,7 +3097,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A physician who provides long-term, comprehensive care in the office and the hospital, managing both common and complex illness of adolescents, adults and the elderly. Internists are trained in the diagnosis and treatment of cancer, infections and diseases affecting the heart, blood, kidneys, joints and digestive, respiratory and vascular systems. They are also trained in the essentials of primary care internal medicine, which incorporates an understanding of disease prevention, wellness, substance abuse, mental health and effective treatment of common problems of the eyes, ears, skin, nervous system and reproductive organs.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3109,7 +3110,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who specializes in adolescent medicine is a multi-disciplinary healthcare specialist trained in the unique physical, psychological and social characteristics of adolescents, their healthcare problems and needs.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3146,7 +3147,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist doctor of osteopathy that specializes in the treatment of allergy and immunologic disorders.  A doctor of osteopathy that is board eligible/certified by the American Osteopathic Board of Internal Medicine can obtain a Certificate of Special Qualifications in the field of Allergy & Immunology.',
     notes:
-      'Source: American Osteopathic Board of Internal Medicine, 2007.  [7/1/2008: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: http://www.osteopathic.org/certification',
+      'Source: American Osteopathic Board of Internal Medicine, 2007.  [7/1/2008: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: http://www.osteopathic.org/certification',
     section: 'Individual',
     status: 'active',
   },
@@ -3159,7 +3160,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist doctor of osteopathy that specializes in the treatment of addiction disorders.  A doctor of osteopathy that is board eligible/certified by the American Osteopathic Board of Internal Medicine can obtain a Certificate of Added Qualifications in the field of Addiction Medicine.',
     notes:
-      'Source: American Osteopathic Board of Internal Medicine, 2007.  [7/1/2008: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: http://www.osteopathic.org/certification',
+      'Source: American Osteopathic Board of Internal Medicine, 2007.  [7/1/2008: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: http://www.osteopathic.org/certification',
     section: 'Individual',
     status: 'active',
   },
@@ -3185,7 +3186,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who specializes in diseases of the heart and blood vessels and manages complex cardiac conditions such as heart attacks and life-threatening, abnormal heartbeat rhythms.',
     notes:
-      'Source: American Osteopathic Board of Internal Medicine, 2008  [7/1/2008: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine,  http://www.abim.org/.  American Osteopathic Board of Internal Medicine,  https://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal Medicine.',
+      'Source: American Osteopathic Board of Internal Medicine, 2008  [7/1/2008: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine,  http://www.abim.org/.  American Osteopathic Board of Internal Medicine,  https://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3198,7 +3199,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A field of special interest within the subspecialty of cardiovascular disease, specialty of Internal Medicine, which involves intricate technical procedures to evaluate heart rhythms and determine appropriate treatment for them.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3211,7 +3212,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who diagnoses, treats and supports patients with multiple organ dysfunction. This specialist may have administrative responsibilities for intensive care units and may also facilitate and coordinate patient care among the primary physician, the critical care staff and other specialists.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3224,7 +3225,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who concentrates on disorders of the internal (endocrine) glands such as the thyroid and adrenal glands. This specialist also deals with disorders such as diabetes, metabolic and nutritional disorders, obesity, pituitary diseases and menstrual and sexual problems.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3237,7 +3238,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who specializes in diagnosis and treatment of diseases of the digestive organs including the stomach, bowels, liver and gallbladder. This specialist treats conditions such as abdominal pain, ulcers, diarrhea, cancer and jaundice and performs complex diagnostic and therapeutic procedures using endoscopes to visualize internal organs.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3250,7 +3251,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "An internist who has special knowledge of the aging process and special skills in the diagnostic, therapeutic, preventive and rehabilitative aspects of illness in the elderly. This specialist cares for geriatric patients in the patient's home, the office, long-term care settings such as nursing homes and the hospital.",
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3263,7 +3264,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist with additional training who specializes in diseases of the blood, spleen and lymph. This specialist treats conditions such as anemia, clotting disorders, sickle cell disease, hemophilia, leukemia and lymphoma.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3289,7 +3290,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist doctor of osteopathy that specializes in the treatment of the combination of hematology and oncology disorders.  A doctor of osteopathy that is board eligible/certified by the American Osteopathic Board of Internal Medicine WAS able to obtain a Certificate of Special Qualifications in the field of Hematology and Oncology.  The Certificate is NO longer offered.',
     notes:
-      'Source: American Osteopathic Board of Internal Medicine, 2007.  [7/1/2008: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: http://www.osteopathic.org/certification',
+      'Source: American Osteopathic Board of Internal Medicine, 2007.  [7/1/2008: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: http://www.osteopathic.org/certification',
     section: 'Individual',
     status: 'active',
   },
@@ -3354,7 +3355,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who deals with infectious diseases of all types and in all organ systems. Conditions requiring selective use of antibiotics call for this special skill. This physician often diagnoses and treats AIDS patients and patients with fevers which have not been explained. Infectious disease specialists may also have expertise in preventive medicine and travel medicine.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3364,7 +3365,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     classification: 'Internal Medicine',
     specialization: 'Magnetic Resonance Imaging (MRI)',
     displayName: 'Magnetic Resonance Imaging (MRI) Internal Medicine Physician',
-    definition: 'The NUCC recommends this code not be used. Choose a more appropriate code.<br/>',
+    definition: 'The NUCC recommends this code not be used. Choose a more appropriate code.\n',
     section: 'Individual',
     status: 'active',
   },
@@ -3377,7 +3378,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who treats disorders of the kidney, high blood pressure, fluid and mineral balance and dialysis of body wastes when the kidneys do not function. This specialist consults with surgeons about kidney transplantation.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3390,7 +3391,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who treats diseases of the lungs and airways. The pulmonologist diagnoses and treats cancer, pneumonia, pleurisy, asthma, occupational and environmental diseases, bronchitis, sleep disorders, emphysema and other complex disorders of the lungs.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3415,7 +3416,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist who treats diseases of joints, muscle, bones and tendons. This specialist diagnoses and treats arthritis, back pain, muscle strains, common athletic injuries and "collagen" diseases.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3428,7 +3429,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An internist trained to be responsible for continuous care in the field of sports medicine, not only for the enhancement of health and fitness, but also for the prevention of injury and illness. A sports medicine physician must have knowledge and experience in the promotion of wellness and the prevention of injury. Knowledge about special areas of medicine such as exercise physiology, biomechanics, nutrition, psychology, physical rehabilitation, epidemiology, physical evaluation, injuries (treatment and prevention and referral practice) and the role of exercise in promoting a healthy lifestyle are essential to the practice of sports medicine. The sports medicine physician requires special education to provide the knowledge to improve the healthcare of the individual.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]<br/>Additional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: added definition, added source; 7/1/2011: modified source]\nAdditional Resources: American Board of Internal Medicine, 2007.  http://www.abim.org/.  American Osteopathic Board of Internal Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Internal  Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Internal  Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3581,7 +3582,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A nuclear medicine specialist employs the properties of radioactive atoms and molecules in the diagnosis and treatment of disease and in research. Radiation detection and imaging instrument systems are used to detect disease as it changes the function and metabolism of normal cells, tissues and organs. A wide variety of diseases can be found in this way, usually before the structure of the organ involved by the disease can be seen to be abnormal by any other techniques. Early detection of coronary artery disease (including acute heart attack), early cancer detection and evaluation of the effect of tumor treatment, diagnosis of infection and inflammation anywhere in the body and early detection of blood clot in the lungs are all possible with these techniques. Unique forms of radioactive molecules can attack and kill cancer cells (e.g., lymphoma, thyroid cancer) or can relieve the severe pain of cancer that has spread to bone',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Nuclear Medicine, 2007.  http://www.abnm.org/.    A doctor of osteopathy was able to obtain a Certificate of Added Qualifications in the field of Nuclear Medicine.  The Certificate is NO longer offered.<br/>American Osteopathic Board of Nuclear Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Nuclear Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Nuclear Medicine, 2007.  http://www.abnm.org/.    A doctor of osteopathy was able to obtain a Certificate of Added Qualifications in the field of Nuclear Medicine.  The Certificate is NO longer offered.\nAmerican Osteopathic Board of Nuclear Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Nuclear Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -3630,7 +3631,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An obstetrician/gynecologist possesses special knowledge, skills and professional capability in the medical and surgical care of the female reproductive system and associated disorders. This physician serves as a consultant to other physicians and as a primary physician for women.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
     section: 'Individual',
     status: 'active',
   },
@@ -3656,7 +3657,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An obstetrician/gynecologist, who specializes in critical care medicine diagnoses, treats and supports female patients with multiple organ dysfunction. This specialist may have administrative responsibilities for intensive care units and may also facilitate and coordinate patient care among the primary physician, the critical care staff and other specialists.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
     section: 'Individual',
     status: 'active',
   },
@@ -3669,7 +3670,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A complex family planning physician specializes in the diagnosis and treatment of individuals with complex reproductive needs. These physicians are experts in abortion and contraception clinical care, research, education, and advocacy.',
     notes:
-      'Source: National Uniform Claim Committee, 2021. Resources: Society of Family Planning, www.societyfp.org.<br/>',
+      'Source: National Uniform Claim Committee, 2021. Resources: Society of Family Planning, www.societyfp.org.\n',
     section: 'Individual',
     status: 'active',
   },
@@ -3682,7 +3683,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An obstetrician/gynecologist who is capable of managing complex problems relating to reproductive endocrinology and infertility.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
     section: 'Individual',
     status: 'active',
   },
@@ -3734,7 +3735,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An obstetrician/gynecologist who cares for, or provides consultation on, patients with complications of pregnancy. This specialist has advanced knowledge of the obstetrical, medical and surgical complications of pregnancy and their effect on both the mother and the fetus. The specialist also possesses expertise in the most current diagnostic and treatment modalities used in the care of patients with complicated pregnancies.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
     section: 'Individual',
     status: 'active',
   },
@@ -3759,7 +3760,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An obstetrician/gynecologist who provides consultation and comprehensive management of patients with gynecologic cancer, including those diagnostic and therapeutic procedures necessary for the total care of the patient with gynecologic cancer and resulting complications.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Obstetrics and Gynecology, 2007.  http://www.abog.org/.  American Osteopathic Board of Obstetrics and Gynecology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Obstetrics and Gynecology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Obstetrics and Gynecology.',
     section: 'Individual',
     status: 'active',
   },
@@ -3771,7 +3772,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An ophthalmologist has the knowledge and professional skills needed to provide comprehensive eye and vision care. Ophthalmologists are medically trained to diagnose, monitor and medically or surgically treat all ocular and visual disorders. This includes problems affecting the eye and its component structures, the eyelids, the orbit and the visual pathways. In so doing, an ophthalmologist prescribes vision services, including glasses and contact lenses.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Ophthalmology, 2007.  http://www.abop.org/.  American Osteopathic Board of Ophthalmology and Otolaryngology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Ophthalmology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Ophthalmology and Otolaryngology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Ophthalmology, 2007.  http://www.abop.org/.  American Osteopathic Board of Ophthalmology and Otolaryngology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Ophthalmology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Ophthalmology and Otolaryngology.',
     section: 'Individual',
     status: 'active',
   },
@@ -3797,7 +3798,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An ophthalmologist who specializes in the diagnosis and treatment of vitreoretinal diseases.',
     notes:
-      'Source: American Society of Retina Specialists, www.asrs.org [1/1/2017: new]<br/>Additional Resources: American Academy of Ophthalmology, www.aao.org.  Macula Society, www.maculasociety.org.  Retina Society, www.retinasociety.org.  Association of University Professors of Ophthalmology, www.aupo.org.',
+      'Source: American Society of Retina Specialists, www.asrs.org [1/1/2017: new]\nAdditional Resources: American Academy of Ophthalmology, www.aao.org.  Macula Society, www.maculasociety.org.  Retina Society, www.retinasociety.org.  Association of University Professors of Ophthalmology, www.aupo.org.',
     section: 'Individual',
     status: 'active',
   },
@@ -3810,7 +3811,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An ophthalmologist who specializes in the treatment of intraocular inflammation, scleritis, keratitis and infectious disorders affecting the eye and inflammatory disorders of the adnexa and/or orbit.',
     notes:
-      'Source: American Academy of Ophthalmology, www.aao.org [1/1/2017: new]<br/>Additional Resources: Association of University Professors of Ophthalmology, www.aupo.org',
+      'Source: American Academy of Ophthalmology, www.aao.org [1/1/2017: new]\nAdditional Resources: Association of University Professors of Ophthalmology, www.aupo.org',
     section: 'Individual',
     status: 'active',
   },
@@ -3823,7 +3824,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A neuro-ophthalmologist is a subspecialist of ophthalmology.  This physician evaluates, treats, and studies disorders of the eye, orbit and nervous system having to do with interactions of the visual motor and visual sensory systems with the central nervous system. Neuro-ophthalmologists manage patients with complex and severe neuro-ophthalmological disorders.',
     notes:
-      'Source: American Academy of Ophthalmology, www.aao.org [7/1/2017: new]<br/>Additional Resources: Association of University Professors of Ophthalmology, www.aupo.org.',
+      'Source: American Academy of Ophthalmology, www.aao.org [7/1/2017: new]\nAdditional Resources: Association of University Professors of Ophthalmology, www.aupo.org.',
     section: 'Individual',
     status: 'active',
   },
@@ -3836,7 +3837,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An ophthalmologist who specializes in pediatric ophthalmology and strabismus management. The subspecialty includes the medical and surgical management of eye disorders found in children. Some of the more common disorders include amblyopia, strabismus, refractive error, cataract and glaucoma. These disorders may be related to neurological and endocrinological diseases, trauma, or aging changes in the extraocular muscles requiring medical, optical and surgical management.',
     notes:
-      'Source: American Academy of Ophthalmology, www.aao.org [7/1/2017: new]<br/>Additional Resources: Association of University Professors of Ophthalmology, www.aupo.org.',
+      'Source: American Academy of Ophthalmology, www.aao.org [7/1/2017: new]\nAdditional Resources: Association of University Professors of Ophthalmology, www.aupo.org.',
     section: 'Individual',
     status: 'active',
   },
@@ -3872,7 +3873,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An orthopaedic surgeon is trained in the preservation, investigation and restoration of the form and function of the extremities, spine and associated structures by medical, surgical and physical means.  An orthopaedic surgeon is involved with the care of patients whose musculoskeletal problems include congenital deformities, trauma, infections, tumors, metabolic disturbances of the musculoskeletal system, deformities, injuries and degenerative diseases of the spine, hands, feet, knee, hip, shoulder and elbow in children and adults. An orthopaedic surgeon is also concerned with primary and secondary muscular problems and the effects of central or peripheral nervous system lesions of the musculoskeletal system.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Orthopaedic Surgery, 2007.  http://www.abos.org/.  American Osteopathic Board of Orthopaedic Surgery, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Orthopaedic Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Orthopaedic Surgery.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Orthopaedic Surgery, 2007.  http://www.abos.org/.  American Osteopathic Board of Orthopaedic Surgery, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Orthopaedic Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Orthopaedic Surgery.',
     section: 'Individual',
     status: 'active',
   },
@@ -3897,7 +3898,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An orthopaedic surgeon trained in the investigation, preservation and restoration by medical, surgical and rehabilitative means of all structures of the upper extremity directly affecting the form and function of the hand and wrist.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Orthopaedic Surgery, 2007.  http://www.abos.org/.  American Osteopathic Board of Orthopaedic Surgery, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Orthopaedic Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Orthopaedic Surgery.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Orthopaedic Surgery, 2007.  http://www.abos.org/.  American Osteopathic Board of Orthopaedic Surgery, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Orthopaedic Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Orthopaedic Surgery.',
     section: 'Individual',
     status: 'active',
   },
@@ -3974,7 +3975,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'An otolaryngologist-head and neck surgeon provides comprehensive medical and surgical care for patients with diseases and disorders that affect the ears, nose, throat, the respiratory and upper alimentary systems and related structures of the head and neck. An otolaryngologist diagnoses and provides medical and/or surgical therapy or prevention of diseases, allergies, neoplasms, deformities, disorders and/or injuries of the ears, nose, sinuses, throat, respiratory and upper alimentary systems, face, jaws and the other head and neck systems. Head and neck oncology, facial plastic and reconstructive surgery and the treatment of disorders of hearing and voice are fundamental areas of expertise.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Otolaryngology, 2007.  http://www.aboto.org/.  American Osteopathic Board of Ophthalmology and Otolaryngology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Otolaryngology.   Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Ophthalmology and Otolaryngology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Otolaryngology, 2007.  http://www.aboto.org/.  American Osteopathic Board of Ophthalmology and Otolaryngology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Otolaryngology.   Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Ophthalmology and Otolaryngology.',
     section: 'Individual',
     status: 'active',
   },
@@ -4076,7 +4077,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A physician who specializes in blood banking/transfusion medicine is responsible for the maintenance of an adequate blood supply, blood donor and patient-recipient safety and appropriate blood utilization. Pre-transfusion compatibility testing and antibody testing assure that blood transfusions, when indicated, are as safe as possible. This physician directs the preparation and safe use of specially prepared blood components, including red blood cells, white blood cells, platelets and plasma constituents, and marrow or stem cells for transplantation.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
     section: 'Individual',
     status: 'active',
   },
@@ -4141,7 +4142,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A forensic pathologist is expert in investigating and evaluating cases of sudden, unexpected, suspicious and violent death as well as other specific classes of death defined by law. The forensic pathologist serves the public as coroner or medical examiner, or by performing medicolegal autopsies for such officials.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pathology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pathology.',
     section: 'Individual',
     status: 'active',
   },
@@ -4154,7 +4155,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A hematopathologist is expert in diseases that affect blood cells, blood clotting mechanisms, bone marrow and lymph nodes. This physician has the knowledge and technical skills essential for the laboratory diagnosis of anemias, leukemias, lymphomas, bleeding disorders and blood clotting disorders.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
     section: 'Individual',
     status: 'active',
   },
@@ -4179,7 +4180,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A medical microbiologist is expert in the isolation and identification of microbial agents that cause infectious disease. Viruses, bacteria and fungi, as well as parasites, are identified and, where possible, tested for susceptibility to appropriate antimicrobial agents.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
     section: 'Individual',
     status: 'active',
   },
@@ -4192,7 +4193,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A neuropathologist is expert in the diagnosis of diseases of the nervous system and skeletal muscles and functions as a consultant primarily to neurologists and neurosurgeons. The neuropathologist is knowledgeable in the infirmities of humans as they affect the nervous and neuromuscular systems, be they degenerative, infectious, metabolic, immunologic, neoplastic, vascular or physical in nature.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
     section: 'Individual',
     status: 'active',
   },
@@ -4218,7 +4219,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pathologist deals with the causes and nature of disease and contributes to diagnosis, prognosis and treatment through knowledge gained by the laboratory application of the biologic, chemical and physical sciences. A pathologist uses information gathered from the microscopic examination of tissue specimens, cells and body fluids, and from clinical laboratory tests on body fluids and secretions for the diagnosis, exclusion and monitoring of disease.',
     notes:
-      'Source: American Board of Medical Specialties, 2007. [7/1/2007: definition added, source added, 7/1/2009: definition reformatted; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007. http://www.abpath.org/. American Osteopathic Board of Pathology, 2007. http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology (note: this taxonomy code identifies the "anatomic pathology only" route). To acknowledge the diverse activities in the practice of pathology and to accommodate the interests of individuals wanting to enter the field, the ABP offers primary certification through the following three routes: combined anatomic pathology and clinical pathology, anatomic pathology only and clinical pathology only. Primary certification in anatomic pathology or clinical pathology may be combined with some of the subspecialty certifications.',
+      'Source: American Board of Medical Specialties, 2007. [7/1/2007: definition added, source added, 7/1/2009: definition reformatted; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007. http://www.abpath.org/. American Osteopathic Board of Pathology, 2007. http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology (note: this taxonomy code identifies the "anatomic pathology only" route). To acknowledge the diverse activities in the practice of pathology and to accommodate the interests of individuals wanting to enter the field, the ABP offers primary certification through the following three routes: combined anatomic pathology and clinical pathology, anatomic pathology only and clinical pathology only. Primary certification in anatomic pathology or clinical pathology may be combined with some of the subspecialty certifications.',
     section: 'Individual',
     status: 'active',
   },
@@ -4244,7 +4245,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A chemical pathologist has expertise in the biochemistry of the human body as it applies to the understanding of the cause and progress of disease. This physician functions as a clinical consultant in the diagnosis and treatment of human disease. Chemical pathology entails the application of biochemical data to the detection, confirmation or monitoring of disease.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pathology.  The Certification is NO longer provided.',
     section: 'Individual',
     status: 'active',
   },
@@ -4257,7 +4258,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pathologist deals with the causes and nature of disease and contributes to diagnosis, prognosis and treatment through knowledge gained by the laboratory application of the biologic, chemical and physical sciences. A pathologist uses information gathered from the microscopic examination of tissue specimens, cells and body fluids, and from clinical laboratory tests on body fluids and secretions for the diagnosis, exclusion and monitoring of disease.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pathology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pathology, 2007.  http://www.abpath.org/.  American Osteopathic Board of Pathology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pathology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pathology.',
     section: 'Individual',
     status: 'active',
   },
@@ -4282,7 +4283,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician is concerned with the physical, emotional and social health of children from birth to young adulthood. Care encompasses a broad spectrum of health services ranging from preventive healthcare to the diagnosis and treatment of acute and chronic diseases. A pediatrician deals with biological, social and environmental influences on the developing child, and with the impact of disease and dysfunction on development.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certificatio<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certificatio\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
     section: 'Individual',
     status: 'active',
   },
@@ -4295,7 +4296,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician who specializes in adolescent medicine is a multi-disciplinary healthcare specialist trained in the unique physical, psychological and social characteristics of adolescents, their healthcare problems and needs.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
     section: 'Individual',
     status: 'active',
   },
@@ -4359,7 +4360,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician who is the principal care provider for sick newborn infants. Clinical expertise is used for direct patient care and for consulting with obstetrical colleagues to plan for the care of mothers who have high-risk pregnancies.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
     section: 'Individual',
     status: 'active',
   },
@@ -4410,7 +4411,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatric cardiologist provides comprehensive care to patients with cardiovascular problems. This specialist is skilled in selecting, performing and evaluating the structural and functional assessment of the heart and blood vessels, and the clinical evaluation of cardiovascular disease.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
     section: 'Individual',
     status: 'active',
   },
@@ -4449,7 +4450,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician who provides expert care to infants, children and adolescents who have diseases that result from an abnormality in the endocrine glands (glands which secrete hormones). These diseases include diabetes mellitus, growth failure, unusual size for age, early or late pubertal development, birth defects, the genital region and disorders of the thyroid, the adrenal and pituitary glands.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
     section: 'Individual',
     status: 'active',
   },
@@ -4475,7 +4476,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician trained in the combination of pediatrics, hematology and oncology to recognize and manage pediatric blood disorders and cancerous diseases.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
     section: 'Individual',
     status: 'active',
   },
@@ -4488,7 +4489,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician trained to care for children in the diagnosis, treatment and prevention of infectious diseases. This specialist can apply specific knowledge to affect a better outcome for pediatric infections with complicated courses, underlying diseases that predispose to unusual or severe infections, unclear diagnoses, uncommon diseases and complex or investigational treatments.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
     section: 'Individual',
     status: 'active',
   },
@@ -4501,7 +4502,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician who deals with the normal and abnormal development and maturation of the kidney and urinary tract, the mechanisms by which the kidney can be damaged, the evaluation and treatment of renal diseases, fluid and electrolyte abnormalities, hypertension and renal replacement therapy.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
     section: 'Individual',
     status: 'active',
   },
@@ -4514,7 +4515,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician dedicated to the prevention and treatment of all respiratory diseases affecting infants, children and young adults. This specialist is knowledgeable about the growth and development of the lung, assessment of respiratory function in infants and children, and experienced in a variety of invasive and noninvasive diagnostic techniques.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) was provided by the American Osteopathic Board of Pediatrics.  The Certification is no longer offered.',
     section: 'Individual',
     status: 'active',
   },
@@ -4552,7 +4553,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A pediatrician who is responsible for continuous care in the field of sports medicine, not only for the enhancement of health and fitness, but also for the prevention of injury and illness. A sports medicine physician must have knowledge and experience in the promotion of wellness and the prevention of injury. Knowledge about special areas of medicine such as exercise physiology, biomechanics, nutrition, psychology, physical rehabilitation, epidemiology, physical evaluation, injuries (treatment and prevention and referral practice) and the role of exercise in promoting a healthy lifestyle are essential to the practice of sports medicine. The sports medicine physician requires special education to provide the knowledge to improve the healthcare of the individual engaged in physical exercise (sports) whether as an individual or in team participation.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Pediatrics, 2007.  http://www.abp.org/.  American Osteopathic Board of Pediatrics, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Pediatrics.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Pediatrics.',
     section: 'Individual',
     status: 'active',
   },
@@ -4602,7 +4603,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Physical medicine and rehabilitation, also referred to as rehabilitation medicine, is the medical specialty concerned with diagnosing, evaluating, and treating patients with physical disabilities. These disabilities may arise from conditions affecting the musculoskeletal system such as neck and back pain, sports injuries, or other painful conditions affecting the limbs, such as carpal tunnel syndrome. Alternatively, the disabilities may result from neurological trauma or disease such as spinal cord injury, head injury or stroke. A physician certified in physical medicine and rehabilitation is often called a physiatrist. The primary goal of the physiatrist is to achieve maximal restoration of physical, psychological, social and vocational function through comprehensive rehabilitation. Pain management is often an important part of the role of the physiatrist. For diagnosis and evaluation, a physiatrist may include the techniques of electromyography to supplement the standard history, physical, x-ray and laboratory examinations. The physiatrist has expertise in the appropriate use of therapeutic exercise, prosthetics (artificial limbs), orthotics and mechanical and electrical devices.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Physical Medicine and Rehabilitation, 2007.  http://www.abpmr.org/.  American Osteopathic Board of Physical Medicine and Rehabilitation, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Physical Medicine and Rehabilitation.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Physical Medicine and Rehabilitation.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Physical Medicine and Rehabilitation, 2007.  http://www.abpmr.org/.  American Osteopathic Board of Physical Medicine and Rehabilitation, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Physical Medicine and Rehabilitation.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Physical Medicine and Rehabilitation.',
     section: 'Individual',
     status: 'active',
   },
@@ -4744,7 +4745,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Aerospace medicine focuses on the clinical care, research, and operational support of the health, safety, and performance of crewmembers and passengers of air and space vehicles, together with the support personnel who assist operation of such vehicles. This population often works and lives in remote, isolated, extreme, or enclosed environments under conditions of physical and psychological stress. Practitioners strive for an optimal human-machine match in occupational settings rich with environmental hazards and engineering countermeasures.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Preventive Medicine, 2007.  http://www.abprevmed.org/.  American Osteopathic Board of Preventive Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Preventive Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Preventive Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Preventive Medicine, 2007.  http://www.abprevmed.org/.  American Osteopathic Board of Preventive Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Preventive Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Preventive Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -4821,7 +4822,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Public health and general preventive medicine focuses on promoting health, preventing disease, and managing the health of communities and defined populations. These practitioners combine population-based public health skills with knowledge of primary, secondary, and tertiary prevention-oriented clinical practice in a wide variety of settings.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Preventive Medicine, 2007.  http://www.abprevmed.org/.  American Osteopathic Board of Preventive Medicine, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Preventive Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Preventive Medicine.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Preventive Medicine, 2007.  http://www.abprevmed.org/.  American Osteopathic Board of Preventive Medicine, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Preventive Medicine.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Preventive Medicine.',
     section: 'Individual',
     status: 'active',
   },
@@ -4873,7 +4874,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A doctor of osteopathy board eligible/certified in the field of Psychiatry by the American Osteopathic Board of Neurology and Psychiatry is able to obtain a Certificate of Added Qualifications in the field of Addiction Medicine',
     notes:
-      'Source: American Osteopathic Board of Neurology and Psychiatry, 2007 [1/1/2008: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: http://www.osteopathic.org/certification',
+      'Source: American Osteopathic Board of Neurology and Psychiatry, 2007 [1/1/2008: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: http://www.osteopathic.org/certification',
     section: 'Individual',
     status: 'active',
   },
@@ -4935,7 +4936,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Epilepsy',
     displayName: 'Epilepsy Physician',
     definition:
-      'Epilepsy is a subspecialty of neurology focused on the diagnosis and treatment of patients with epilepsy, including new-onset, medically refractory epilepsy, psychogenic nonepileptic seizures, and epilepsy in special populations (the elderly, women, patients with co-morbidities). Epilepsy is a multidisciplinary field that provides comprehensive care of the patient.<br/>',
+      'Epilepsy is a subspecialty of neurology focused on the diagnosis and treatment of patients with epilepsy, including new-onset, medically refractory epilepsy, psychogenic nonepileptic seizures, and epilepsy in special populations (the elderly, women, patients with co-morbidities). Epilepsy is a multidisciplinary field that provides comprehensive care of the patient.\n',
     notes: 'Source: American Epilepsy Society, www.aesnet.org [7/1/2021: new]',
     section: 'Individual',
     status: 'active',
@@ -5205,7 +5206,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A radiologist who diagnoses and treats diseases utilizing imaging procedures as they relate to the brain, spine and spinal cord, head, neck and organs of special sense in adults and children.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -5218,7 +5219,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A radiologist who is involved in the analysis and imaging of radionuclides and radiolabeled substances in vitro and in vivo for diagnosis and the administration of radionuclides and radiolabeled substances for the treatment of disease.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -5231,7 +5232,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A radiologist who is proficient in all forms of diagnostic imaging as it pertains to the treatment of diseases in the newborn, infant, child and adolescent. This specialist has knowledge of both imaging and interventional procedures related to the care and management of diseases of children. A pediatric radiologist must be highly knowledgeable of all organ systems as they relate to growth and development, congenital malformations, diseases peculiar to infants and children and diseases that begin in childhood but cause substantial residual impairment in adulthood.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/><br/>Additional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\n\nAdditional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -5244,7 +5245,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A radiologist who deals with the therapeutic applications of radiant energy and its modifiers and the study and management of disease, especially malignant tumors.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Osteopathic Board of Radiology, 2007. http://www.osteopathic.org/certification',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Osteopathic Board of Radiology, 2007. http://www.osteopathic.org/certification',
     section: 'Individual',
     status: 'active',
   },
@@ -5257,7 +5258,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A radiologist who utilizes x-ray, radionuclides, ultrasound and electromagnetic radiation to diagnose and treat disease.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Radiology, 2007.  http://www.theabr.org/.   American Osteopathic Board of Radiology, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Radiology.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Radiology.',
     section: 'Individual',
     status: 'active',
   },
@@ -5319,7 +5320,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A general surgeon has expertise related to the diagnosis - preoperative, operative and postoperative management - and management of complications of surgical conditions in the following areas: alimentary tract; abdomen; breast, skin and soft tissue; endocrine system; head and neck surgery; pediatric surgery; surgical critical care; surgical oncology; trauma and burns; and vascular surgery. General surgeons increasingly provide care through the use of minimally invasive and endoscopic techniques. Many general surgeons also possess expertise in transplantation surgery, plastic surgery and cardiothoracic surgery.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Surgery, 2007.  http://www.absurgery.org/.   American Osteopathic Board of Surgery, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Surgery.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Surgery, 2007.  http://www.absurgery.org/.   American Osteopathic Board of Surgery, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Surgery.',
     section: 'Individual',
     status: 'active',
   },
@@ -5357,7 +5358,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A surgeon with expertise in the management of the critically ill and postoperative patient, particularly the trauma victim, who specializes in critical care medicine diagnoses, treats and supports patients with multiple organ dysfunction. This specialist may have administrative responsibilities for intensive care units and may also facilitate and coordinate patient care among the primary physician, the critical care staff and other specialists.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Surgery, 2007.  http://www.absurgery.org/.   American Osteopathic Board of Surgery, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Surgery.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Surgery, 2007.  http://www.absurgery.org/.   American Osteopathic Board of Surgery, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Surgery.',
     section: 'Individual',
     status: 'active',
   },
@@ -5421,7 +5422,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'A surgeon with expertise in the management of surgical disorders of the blood vessels, excluding the intracranial vessels or the heart.',
     notes:
-      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]<br/>Additional Resources: American Board of Surgery, 2007.  http://www.absurgery.org/.   American Osteopathic Board of Surgery, 2007.  http://www.osteopathic.org/certification<br/>Board certification for Medical Doctors (MDs) is provided by the American Board of Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Surgery.',
+      'Source: American Board of Medical Specialties, 2007.  www.abms.org [7/1/2007: definition added, source added; 7/1/2011: modified source]\nAdditional Resources: American Board of Surgery, 2007.  http://www.absurgery.org/.   American Osteopathic Board of Surgery, 2007.  http://www.osteopathic.org/certification\nBoard certification for Medical Doctors (MDs) is provided by the American Board of Surgery.  Board certification for Doctors of Osteopathy (DOs) is provided by the American Osteopathic Board of Surgery.',
     section: 'Individual',
     status: 'active',
   },
@@ -5543,7 +5544,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "Pain Medicine is a primary medical specialty based on a distinct body of knowledge and a well-defined scope of clinical practice that is founded on science, research and education.  It is concerned with the study of pain, the prevention of pain, and the evaluation, treatment, and rehabilitation of persons in pain.  A comprehensive evaluation incorporates the physical, psychological, cognitive and socio-cultural contributions to pain.  The treatment protocol may include pharmacological, invasive, behavioral, cognitive, rehabilitative and complementary strategies provided in a concurrent focused and patient specific manner.  The pain medicine physician often serves the patient as a frontline physician regarding their pain, but also may serve as a consultant to other physicians, direct an interdisciplinary/multidisciplinary treatment team, conduct research, or advocate for the patient's pain care with public and private agencies.  The Pain Medicine physician may work in variety of settings including office, clinic, hospital, university, or governmental/public agencies.",
     notes:
-      'Source: American Academy of Pain Medicine, www.painmed.org<br/>Additional Resources: The American Board of Pain Medicine provides Board Certification.',
+      'Source: American Academy of Pain Medicine, www.painmed.org\nAdditional Resources: The American Board of Pain Medicine provides Board Certification.',
     section: 'Individual',
     status: 'active',
   },
@@ -5767,7 +5768,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapy assistants provide environmental modifications under the supervision of an occupational therapist.  OTAs develop and implement an individualized occupational therapy environmental modification plan that reflects the relevant contexts of the client and relevant others and maximizes current and future occupational performance, safety, and participation of the client. Clients receive environmental modification recommendations and interventions that enable them to meet occupational performance and participation goals and that have adequate flexibility to accommodate for their future needs.',
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for an Environmental Modification Occupational Therapy Assistant if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>Fact Sheet: Home Modifications and OT,  AOTA Website: Specialty Certifications',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for an Environmental Modification Occupational Therapy Assistant if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nFact Sheet: Home Modifications and OT,  AOTA Website: Specialty Certifications',
     section: 'Individual',
     status: 'active',
   },
@@ -5780,7 +5781,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapy assistants provide environmental modifications under the supervision of an occupational therapist.  OTAs develop and implement an individualized occupational therapy environmental modification plan that reflects the relevant contexts of the client and relevant others and maximizes current and future occupational performance, safety, and participation of the client. Clients receive environmental modification recommendations and interventions that enable them to meet occupational performance and participation goals and that have adequate flexibility to accommodate for their future needs.',
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Feeding, Eating & Swallowing Occupational Therapy Assistant if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Website: Specialty Certifications; AOTA Specialized Knowledge and Skills Paper: Feeding, Eating and Swallowing in Occupational Therapy Practice, 2007; AOTA Fact Sheets: OT: A Vital Role in Dysphagia Care',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Feeding, Eating & Swallowing Occupational Therapy Assistant if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Website: Specialty Certifications; AOTA Specialized Knowledge and Skills Paper: Feeding, Eating and Swallowing in Occupational Therapy Practice, 2007; AOTA Fact Sheets: OT: A Vital Role in Dysphagia Care',
     section: 'Individual',
     status: 'active',
   },
@@ -5793,7 +5794,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "Occupational therapy assistants contribute to the completion of an individualized occupational therapy low-vision evaluation under the direction and supervision of the occupational therapist to identify factors that may facilitate, compensate for, or inhibit use of vision in occupational performance.  Clients are engaged in the identification of strengths, limitations, and goals as they relate to low vision to optimize independence and participation in desired occupations.  Occupational therapy assistants also contribute to the development and implementation of an individualized occupational therapy low-vision intervention plan in collaboration with the occupational therapist, client, and relevant others that reflects the client's priorities for occupational performance.",
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Low Vision Occupational Therapy Assistant if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Fact Sheets: Low Vision; OT Services for Individuals with Visual Impairments',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Low Vision Occupational Therapy Assistant if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Fact Sheets: Low Vision; OT Services for Individuals with Visual Impairments',
     section: 'Individual',
     status: 'active',
   },
@@ -5806,7 +5807,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "Occupational therapy assistants contribute to the completion of an individualized occupational therapy driving and community mobility evaluation by administering delegated assessments and identifying findings that impact the client's occupational performance. Clients engage in the assessment and occupational profile process to customize the evaluation to their individual driving and community mobility needs.  Occupational therapy assistants administer and continuously modify individualized in-vehicle and community mobility assessments within the naturalistic context of the community in response to the occupational performance and safety behaviors of the client.  They also implement an individualized intervention plan, within the parameters established in collaboration with the occupational therapist that reflects the contexts of the client and meets his or her occupational performance and safety needs.  Occupational therapy assistants address immediate and long-term implications of psychosocial issues related to compromised driving and community mobility throughout the occupational therapy process and makes recommendations to the occupational therapist for modification to service delivery.",
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Driving & Community Mobility Occupational Therapy Assistant if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Fact Sheets: Older Driver; AOTA Website: Specialty Certification',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Driving & Community Mobility Occupational Therapy Assistant if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Fact Sheets: Older Driver; AOTA Website: Specialty Certification',
     section: 'Individual',
     status: 'active',
   },
@@ -6133,7 +6134,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapy practitioners are experts at identifying the cause of difficulties in performance of activities of daily living and instrumental activities of daily living.  Occupational therapy practitioners evaluate the client, their environment, and their occupational performance in that environment, as well as make recommendations for products to improve the fit between the client, place, and activity.  Occupational therapists can evaluate both the skills of the client and the environmental features that support or limit the performance of meaningful or necessary activities, thereby enhancing health, safety and well-being.  Based on this assessment, they recommend modification and intervention strategies that improve the fit between the person and his or her environment.',
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for an Environmental Modification Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Fact Sheets: Home Modifications',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for an Environmental Modification Occupational Therapist if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Fact Sheets: Home Modifications',
     section: 'Individual',
     status: 'active',
   },
@@ -6156,7 +6157,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapists provide interventions to clients of all ages with feeding, eating and swallowing difficulties.  Occupational therapists provide comprehensive rehabilitative, habilitative, and palliative dysphagia care, which includes collaborating with clients to provide individualized compensatory swallowing strategies, modified diet textures, adapted mealtime environments, enhanced feeding skills, preparatory exercises and positioning to clients, reinforcement of mealtime strategies to enhance and improve swallowing skills, and training to caregivers to enhance eating and feeding performance.  Occupational therapists provide screening and in-depth clinical assessment which may include instrumental dysphagia assessments including videofluroscopy.',
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Feeding, Eating & Swallowing Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Specialized Knowledge and Skills Paper: Feeding, Eating and Swallowing in Occupational Therapy Practice, 2007; AOTA Fact Sheets: OT: A Vital Role in Dysphagia Care',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Feeding, Eating & Swallowing Occupational Therapist if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Specialized Knowledge and Skills Paper: Feeding, Eating and Swallowing in Occupational Therapy Practice, 2007; AOTA Fact Sheets: OT: A Vital Role in Dysphagia Care',
     section: 'Individual',
     status: 'active',
   },
@@ -6169,7 +6170,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapists work with older adults in virtually every setting: assisted living, wellness programs, hospitals, nursing homes, senior centers, clinics and in the home. Occupational therapists bring an understanding of the importance of participation and occupation for overall well-being to those who are experiencing disabling conditions related to aging. The primary overarching goal of occupational therapy services with this population is to maximize independence and participation, thereby enabling an older person to continue to live successfully in his or her chosen environment. Occupational therapists can help older adults by developing strategies to help or maintain safety and well-being, to assist with life transitions, and to compensate for challenges they experience in activities of daily living, instrumental activities of daily living, leisure participation, social participation, and productive activities.',
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Gerontology Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 5 years of practice as an occupational therapist.  <li>Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  <li>Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Fact Sheets: Senior Center and Assisted Living Facilities',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Gerontology Occupational Therapist if the applicant meets the following requirements: \n \n- Professional degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 5 years of practice as an occupational therapist.  \n- Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  \n- Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Fact Sheets: Senior Center and Assisted Living Facilities',
     section: 'Individual',
     status: 'active',
   },
@@ -6202,7 +6203,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "Occupational therapists enable children and adults with visual impairment to engage in their chosen daily living activities safely and as independently as possible.  This is accomplished by 1) teaching the person to use their remaining vision as efficiently as possible to complete activities; (2) modifying activities so that they can be completed with less vision; (3) training the person in use of adaptive equipment to compensate for vision loss, including high and low technology assistive devices; and (4) modifying the person's environment.",
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Low Vision Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Fact Sheets: Low Vision; OT Services for Individuals with Visual Impairments',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Low Vision Occupational Therapist if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Fact Sheets: Low Vision; OT Services for Individuals with Visual Impairments',
     section: 'Individual',
     status: 'active',
   },
@@ -6215,7 +6216,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapists provide treatment for people recovering from a mental or physical illness to regain their independence and stability and to engage in normal daily occupations (work, home, family life, school, leisure).  Occupational therapists provide particular emphasis on interventions that result in improved quality of life and decrease hospitalization.',
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Mental Health Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 5 years of practice as an occupational therapist.  <li>Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  <li>Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Fact Sheets: Partial Hospitalization Programs and Consumer',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Mental Health Occupational Therapist if the applicant meets the following requirements: \n \n- Professional degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 5 years of practice as an occupational therapist.  \n- Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  \n- Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Fact Sheets: Partial Hospitalization Programs and Consumer',
     section: 'Individual',
     status: 'active',
   },
@@ -6238,7 +6239,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "Occupational therapists are experts at helping people lead as independent a life as possible.  Occupational therapists bring an understanding of the physical and psychological implications of illness and injury and their effects on peoples' ability to perform the tasks of daily living.  Occupational therapists provide interventions that can aide a person in completing ADL and IADL tasks, such as dressing, bathing, preparing meals, and driving.  They also may fabricate custom orthotics to improve function, evaluate the environment for safety hazards and recommend adaptations to remove those hazards, help a person compensate for cognitive changes, and build a persons' physical endurance and strength. Occupational therapists' knowledge of adapting tasks and modifying the environment to compensate for functional limitations is used to increase the involvement of clients and to promote safety and success.",
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Physical Rehabilitation Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 5 years of practice as an occupational therapist.  <li>Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  <li>Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul>AOTA Consumer Tip Sheets: Stroke, Hip',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Physical Rehabilitation Occupational Therapist if the applicant meets the following requirements: \n \n- Professional degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 5 years of practice as an occupational therapist.  \n- Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  \n- Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \nAOTA Consumer Tip Sheets: Stroke, Hip',
     section: 'Individual',
     status: 'active',
   },
@@ -6251,7 +6252,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Occupational therapists provide services to infants, toddlers and children who have or who are at risk for developmental delays or disabilities. Occupational therapy is concerned with a child\'s ability to participate in daily life activities or "occupations."  Occupational therapists use their unique expertise to help children with social-emotional, physical, cognitive, communication, and adaptive behavioral challenges and to help children to be prepared for and perform important learning and school-related activities and to fulfill their rule as students.  Through an understanding of the impact of disability, illness, and impairment on a child\'s development, plan, ability to learn new skills, and overall occupational performance, occupational therapists design interventions that promote healthy development, establish needed skills, and/or modify environments, all in support of participation in daily activities.',
     notes:
-      "Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]   Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Pediatric Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 5 years of practice as an occupational therapist.  <li>Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  <li>Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul> AOTA Specialized Knowledge and Skills Paper: Occupational Therapy Practice in the Neonatal Intensive Care Unity (2006); AOTA Fact Sheets: Children and the Tsunami, OT for Children Birth to 3 Years of Age, OT's Role with Autism, OT in Educational Settings Under the Individuals with Disabilities Education Act, Transforming Caseload to Workload in School Based and Early Intervention OT Services, OT in Preschool Settings.",
+      "Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: new]   Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary board certification for a Pediatric Occupational Therapist if the applicant meets the following requirements: \n \n- Professional degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 5 years of practice as an occupational therapist.  \n- Minimum of 5,000 hours of experience as an occupational therapist in the certification area in the last 7 calendar years.  \n- Minimum of 500 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 5 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \n AOTA Specialized Knowledge and Skills Paper: Occupational Therapy Practice in the Neonatal Intensive Care Unity (2006); AOTA Fact Sheets: Children and the Tsunami, OT for Children Birth to 3 Years of Age, OT's Role with Autism, OT in Educational Settings Under the Individuals with Disabilities Education Act, Transforming Caseload to Workload in School Based and Early Intervention OT Services, OT in Preschool Settings.",
     section: 'Individual',
     status: 'active',
   },
@@ -6264,7 +6265,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       "Occupational therapists can optimize and prolong an older driver's ability to drive safely and ease the transition to other forms of transportation if driving cessation becomes necessary.  By identifying strengths as well as physical or cognitive challenges, occupational therapists can evaluate an individual's overall ability to operate a vehicle safely and recommend assistive devices or behavioral changes to limit risks.  Occupational therapy practitioners offer a continuum of services related to community mobility, from evaluation of driving performance, through counseling and support for lifestyle changes, to maintaining independence and quality of life.",
     notes:
-      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: title changed, definition added, source added]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Driving & Community Mobility Occupational Therapist if the applicant meets the following requirements: <ul> <li>Professional or technical degree or equivalent in occupational therapy.  <li>Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  <li>Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  <li>600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  <li>Verification of employment. </ul> AOTA Fact Sheets: Older Driver',
+      'Source: The Guide to Occupational Therapy Practice, 2nd edition. Bethesda: American Occupational Therapy Association, 2007. [7/1/2008: title changed, definition added, source added]  Additional Resources: The American Occupational Therapy Association (AOTA) does offer voluntary specialty certification for a Driving & Community Mobility Occupational Therapist if the applicant meets the following requirements: \n \n- Professional or technical degree or equivalent in occupational therapy.  \n- Certified or licensed by and in good standing with an AOTA recognized credentialing or regulatory body.  \n- Minimum of 2,000 hours of experience as an occupational therapist or occupational therapy assistant.  \n- 600 hours of experience delivering occupational therapy services in the certification area to clients (individuals, groups, or populations) in the last 3 calendar years. Service delivery may be paid or voluntary.  \n- Verification of employment. \n AOTA Fact Sheets: Older Driver',
     section: 'Individual',
     status: 'active',
   },
@@ -6963,7 +6964,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Coding Specialist, Hospital Based',
     displayName: 'Hospital Based Coding Specialist',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -6974,7 +6975,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Coding Specialist, Physician Office Based',
     displayName: 'Physician Office Based Coding Specialist',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -6985,7 +6986,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Registered Record Administrator',
     displayName: 'Registered Record Administrator',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7006,7 +7007,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Art, Medical',
     displayName: 'Medical Art Specialist/Technologist',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7017,7 +7018,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Biomedical Engineering',
     displayName: 'Biomedical Engineer',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023<br/>',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023\n',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7028,7 +7029,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Biomedical Photographer',
     displayName: 'Biomedical Photographer',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7050,7 +7051,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Biostatistician',
     displayName: 'Biostatistician',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7094,7 +7095,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Graphics Methods',
     displayName: 'Graphics Methods Specialist/Technologist',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023<br/>',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023\n',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7115,7 +7116,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Illustration, Medical',
     displayName: 'Medical Illustrator',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023<br/>',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023\n',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7173,7 +7174,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Assistant Record Technician',
     displayName: 'Assistant Health Information Record Technician',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7376,7 +7377,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Biomedical Engineering',
     displayName: 'Biomedical Engineering Technician',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023<br/>',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023\n',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7387,7 +7388,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Darkroom',
     displayName: 'Darkroom Technician',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023<br/>',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023\n',
     section: 'Individual',
     status: 'inactive',
   },
@@ -7418,7 +7419,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     specialization: 'Veterinary',
     displayName: 'Veterinary Technician',
     definition: 'None',
-    notes: '[1/1/2023: marked inactive]<br/>Deactivation Date: 3/31/2023<br/>',
+    notes: '[1/1/2023: marked inactive]\nDeactivation Date: 3/31/2023\n',
     section: 'Individual',
     status: 'inactive',
   },
@@ -9979,7 +9980,7 @@ export const TAXONOMY_ENTRIES: readonly TaxonomyEntry[] = [
     definition:
       'Advanced practice midwifery encompasses the independent provision of care during pregnancy, childbirth, and the postpartum period; sexual and reproductive health; gynecologic health; and family planning services, including preconception care. Midwives also provide primary care for individuals from adolescence throughout the lifespan as well as care for the healthy newborn during the first 28 days of life. Midwives provide initial and ongoing comprehensive assessment, diagnosis, and treatment. Midwifery care includes health promotion, disease prevention, risk assessment and management, and individualized wellness education and counseling.',
     notes:
-      'Source: American College of Nurse-Midwives, www.midwife.org <br/>Additional Resources: See the American College of Nurse-Midwives, www.midwife.org, for more information on Certified Nurse-Midwives, Certified Midwives, the American Midwifery Certification Board (AMCB), and licensure.',
+      'Source: American College of Nurse-Midwives, www.midwife.org \nAdditional Resources: See the American College of Nurse-Midwives, www.midwife.org, for more information on Certified Nurse-Midwives, Certified Midwives, the American Midwifery Certification Board (AMCB), and licensure.',
     section: 'Individual',
     status: 'active',
   },

@@ -326,4 +326,5 @@ export interface NppesSearchParams {
   skip: number;
   state?: string;
   taxonomyDescription?: string;
+  useFirstNameAlias?: boolean;
 }

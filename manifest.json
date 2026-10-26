@@ -17,6 +17,7 @@
       "command": "node",
       "args": ["${__dirname}/dist/index.js"],
       "env": {
+        "NPI_CLAMP_LIMITS": "${user_config.clamp_limits}",
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_AUTH_MODE": "none",
         "NODE_ENV": "production"
@@ -28,5 +29,13 @@
   },
   "tools_generated": true,
   "prompts_generated": false,
-  "user_config": {}
+  "user_config": {
+    "clamp_limits": {
+      "type": "boolean",
+      "title": "Clamp oversized limits",
+      "description": "Clamp oversized limits and provider batches. Disable to restore strict upper bounds.",
+      "default": true,
+      "required": false
+    }
+  }
 }

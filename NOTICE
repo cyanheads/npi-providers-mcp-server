@@ -24,11 +24,11 @@ code set is not modified beyond formatting.
 
 The bundled code set is redistributed unmodified beyond formatting: the build
 script (scripts/generate-taxonomy-data.ts) keeps every upstream column,
-including Notes, trims field whitespace, sorts rows by code, and re-encodes the
+including Notes, trims field whitespace, converts known HTML breaks and lists in
+Definition and Notes to newlines and list items, sorts rows by code, and re-encodes the
 data as a typed TypeScript module. It also records, alongside each code, the
 active/inactive status and replacement code stated in that code's own Notes or
-Definition text. No code, description, classification, or other data value is
-altered.
+Definition text. All other source text and data values are retained.
 
 NUCC permission:
 https://www.nucc.org/index.php/nucc-structure-mainmenu-36/contact-us-mainmenu-34?id=111

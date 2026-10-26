@@ -153,7 +153,7 @@ describe('NPI validation at both public boundaries', () => {
       searchProvidersTool.input.safeParse({ last_name: 'SMITH', lastName: 'SMITH' }).success,
     ).toBe(false);
     expect(
-      lookupTaxonomyTool.input.safeParse({ mode: 'get', code: '207RC0000X', query: 'ignored' })
+      lookupTaxonomyTool.input.safeParse({ mode: 'get', code: '207RC0000X', queryy: 'ignored' })
         .success,
     ).toBe(false);
   });
@@ -410,6 +410,20 @@ describe('taxonomy completeness and search pagination honesty', () => {
     expect(resourceResult).toHaveProperty(
       'notes',
       'Source:  Health Professions Career and Education Directory, American Medical Association [1/1/2007: new]',
+    );
+    const convertedTool = await lookupTaxonomyTool.handler(
+      lookupTaxonomyTool.input.parse({ mode: 'get', code: '225XR0403X' }),
+      createMockContext({ errors: lookupTaxonomyTool.errors }),
+    );
+    const convertedResource = await taxonomyResource.handler(
+      taxonomyResource.params!.parse({ code: '225XR0403X' }),
+      createMockContext({ errors: taxonomyResource.errors }),
+    );
+    expect(convertedResource).toHaveProperty('notes', convertedTool.matches[0]?.notes);
+    expect(convertedResource).toHaveProperty('notes', expect.stringContaining('\n- '));
+    expect(convertedResource).toHaveProperty(
+      'notes',
+      expect.not.stringMatching(/<br\/>|<\/?ul>|<li>/),
     );
   });
 

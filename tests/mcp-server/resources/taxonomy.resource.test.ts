@@ -16,6 +16,15 @@ beforeAll(() => {
 const ctx = () => createMockContext({ errors: taxonomyResource.errors });
 
 describe('taxonomyResource', () => {
+  it.each([
+    ['225XR0403X', 'notes'],
+    ['207RC0000X', 'notes'],
+    ['102X00000X', 'definition'],
+  ] as const)('returns converted %s %s with all item boundaries', async (code, field) => {
+    const result = await taxonomyResource.handler(taxonomyResource.params!.parse({ code }), ctx());
+    expect(result).toHaveProperty(field, expect.stringContaining('\n'));
+    expect(result).toHaveProperty(field, expect.not.stringMatching(/<br\/>|<\/?ul>|<li>/));
+  });
   it('returns the entry for a valid code', async () => {
     const params = taxonomyResource.params!.parse({ code: '207RC0000X' });
     const result = await taxonomyResource.handler(params, ctx());

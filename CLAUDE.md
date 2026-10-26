@@ -2,10 +2,10 @@
 
 **Server:** npi-providers-mcp-server
 **Version:** 0.4.1
-**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.14`
+**Framework:** [@cyanheads/mcp-ts-core](https://www.npmjs.com/package/@cyanheads/mcp-ts-core) `^0.13.18`
 **Engines:** Bun ≥1.4.0, Node ≥24.0.0
-**MCP SDK:** `@modelcontextprotocol/server` ^2.2.0
-**Zod:** ^4.6.5
+**MCP SDK:** `@modelcontextprotocol/server` ^2.4.0
+**Zod:** ^4.6.7
 
 > **Read the framework docs first:** `node_modules/@cyanheads/mcp-ts-core/CLAUDE.md` contains the full API reference — builders, Context, error codes, exports, patterns. This file covers server-specific conventions only.
 
@@ -16,9 +16,10 @@
 US healthcare provider directory over the live, **keyless** NPPES NPI Registry API (v2.1), plus a **bundled NUCC Healthcare Provider Taxonomy** code set (883 codes, v26.1) for offline specialty resolution. Three tools, two resources, no prompts:
 
 - `npi_search_providers` — search by name, organization, location, provider type, and specialty; plain-language specialties resolve through the bundled taxonomy before searching.
-- `npi_get_provider` — decode up to 10 NPIs to their professional-practice records (only LOCATION address rows are kept for individual providers), checking each NPI's check digit and fanning out one call per valid NPI with partial-success reporting.
+- `npi_get_provider` — accepts up to 100 raw NPIs, deduplicates and checks every check digit, then decodes ten valid NPIs with partial-success reporting and an explicit `unprocessed` remainder. Only LOCATION address rows are kept for individual providers.
 - `npi_lookup_taxonomy` — offline NUCC resolver: `resolve` / `get` / `browse`.
 - `npi://provider/{npi}` and `npi://taxonomy/{code}` — read-only resource twins of the get/lookup tools.
+- `skill://npi-providers-guide/SKILL.md` — published guide for specialty cohorts and directory completeness, delivered from root `skills/`.
 
 Two services: `nppes` (live HTTP, detects the registry's HTTP-200-with-`Errors[]` validation envelope and maps it to typed contract reasons; a structurally malformed body is retried, then surfaces as `ServiceUnavailable`) and `taxonomy` (in-memory NUCC index loaded at startup). No API key — `MCP_AUTH_MODE=none`, no `auth` scopes; all tools are read-only over public professional-practice data.
 
@@ -40,45 +41,7 @@ Two services: `nppes` (live HTTP, detects the registry's HTTP-200-with-`Errors[]
 
 ### Tool
 
-Real example: `npi_lookup_taxonomy` (offline, mode-dispatched, typed error contract). See `src/mcp-server/tools/definitions/lookup-taxonomy.tool.ts` for the full definition.
-
-```ts
-import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { getTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
-
-export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
-  description: 'Resolve and browse the NUCC Healthcare Provider Taxonomy — fully offline.',
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  errors: [
-    { reason: 'no_match', code: JsonRpcErrorCode.NotFound,
-      when: 'A resolve query or get code matched no taxonomy entry.',
-      recovery: 'Try a broader term, or use mode browse to walk groupings then classifications.' },
-  ],
-  input: z.object({
-    mode: z.enum(['resolve', 'get', 'browse']).describe('resolve: term → codes. get: code → entry. browse: walk hierarchy.'),
-    query: z.string().optional().describe('For mode "resolve": the plain-language specialty term.'),
-    limit: z.number().int().min(1).max(50).default(20).describe('Max entries for resolve/browse.'),
-  }),
-  output: z.object({
-    matches: z.array(EntrySchema).describe('Matching taxonomy entries.'),
-  }),
-  handler(input, ctx) {
-    const taxonomy = getTaxonomyService();
-    if (input.mode === 'resolve') {
-      const query = input.query?.trim();
-      if (!query) throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.');
-      const hits = taxonomy.resolve(query, input.limit);
-      if (hits.length === 0) throw ctx.fail('no_match', `No taxonomy matched "${query}".`);
-      return { matches: hits.map(toEntry) };
-    }
-    // ... get / browse modes
-  },
-  // format() populates content[] — the markdown twin of structuredContent.
-  // Both surfaces must carry the same data (lint-enforced: every output field appears in the text).
-  format: (result) => [{ type: 'text', text: result.matches.map(renderEntry).join('\n\n') }],
-});
-```
+`src/mcp-server/tools/definitions/lookup-taxonomy.tool.ts` is the canonical mode-dispatched tool definition. `src/index.ts` parses `NPI_CLAMP_LIMITS` during `setup()`, then registers `createLookupTaxonomyTool(clampLimits)`. The factory advertises one flat object schema; the handler rejects wrong-mode fields before applying paging defaults. Keep schema, error contract, enrichment and formatter together in that definition.
 
 ### Resource
 
@@ -120,6 +83,7 @@ import { z } from '@cyanheads/mcp-ts-core';
 import { parseEnvConfig } from '@cyanheads/mcp-ts-core/config';
 
 const ServerConfigSchema = z.object({
+  clampLimits: z.stringbool().default(true),
   apiBaseUrl: z.string().url().default('https://npiregistry.cms.hhs.gov/api')
     .describe('NPPES NPI Registry API base URL. Override for a private mirror or testing.'),
   timeoutMs: z.coerce.number().int().min(1000).max(120000).default(15000)
@@ -129,6 +93,7 @@ const ServerConfigSchema = z.object({
 let _config: z.infer<typeof ServerConfigSchema> | undefined;
 export function getServerConfig() {
   _config ??= parseEnvConfig(ServerConfigSchema, {
+    clampLimits: 'NPI_CLAMP_LIMITS',
     apiBaseUrl: 'NPPES_API_BASE_URL',
     timeoutMs: 'NPPES_TIMEOUT_MS',
   });
@@ -136,7 +101,7 @@ export function getServerConfig() {
 }
 ```
 
-Both vars are optional with defaults — the NPPES upstream is keyless, so the server starts with no configuration. `parseEnvConfig` maps Zod schema paths → env var names so errors name the variable (`NPPES_API_BASE_URL`) not the path (`apiBaseUrl`). Throws `ConfigurationError`, which the framework prints as a clean startup banner.
+All server variables are optional with defaults. `setup()` parses configuration after dotenv loading and constructs tool definitions with `clampLimits`, so advertised schemas match the operator's setting. `NPI_CLAMP_LIMITS=false` restores strict upper bounds; true clamps search/taxonomy limits and preserves a provider batch's unprocessed remainder. `parseEnvConfig` maps schema paths to variable names and raises a clean startup error before serving when a value is invalid.
 
 For env booleans use `z.stringbool()`, never `z.coerce.boolean()` — `Boolean("false")` is `true`, so a coerced flag can't be disabled through the environment. `z.stringbool()` parses `true/false/1/0/yes/no/on/off` and rejects anything else, so `=false` actually disables.
 
@@ -235,7 +200,7 @@ See framework CLAUDE.md and the `api-errors` skill for the full auto-classificat
 src/
   index.ts                                   # createApp() entry point — registers tools/resources, inits services
   config/
-    server-config.ts                         # NPPES_API_BASE_URL, NPPES_TIMEOUT_MS (Zod schema)
+    server-config.ts                         # NPPES upstream settings and NPI_CLAMP_LIMITS
   services/
     nppes/
       nppes-service.ts                        # NPPES API v2.1 client — query build, Errors[]-on-200 detection, normalization
@@ -275,7 +240,16 @@ No `prompts/` — this server defines no prompts. The bundled NUCC index in `tax
 
 ## Skills
 
-Skills are modular instructions in `framework-skills/` at the project root. Read them directly when a task matches — e.g., `framework-skills/add-tool/SKILL.md` when adding a tool. `bun run list-skills` prints the full registry. The directory is deliberately not `skills/`: Claude Code and Codex auto-load a plugin's root `skills/`, so a server that ships `.claude-plugin/` or `.codex-plugin/` would hand these development skills to every agent that installs it. Keep `skills/` free for skills meant for those agents.
+Two skill trees live at the project root, written for different readers:
+
+| Tree | For | Written by |
+|:-----|:----|:-----------|
+| `framework-skills/` | The agent developing this server — framework skills (`metadata.audience: external`) plus any development-time skills of the server's own | `init` and the `maintenance` sync (framework skills); you (your own) |
+| `skills/` | The agents that install the server and call its tools — tool chains, identifier sources, gates | You, deliberately, with the `add-skill` skill. Absent by default; usually none is needed |
+
+Development skills are modular instructions. Read them directly when a task matches — e.g., `framework-skills/add-tool/SKILL.md` when adding a tool. `bun run list-skills` prints the full registry. Their directory is deliberately not `skills/`: Claude Code and Codex auto-load a plugin's root `skills/`, so a server that ships `.claude-plugin/` or `.codex-plugin/` would hand them to every agent that installs it.
+
+A published skill in root `skills/` reaches plugin installs and the `.mcpb` bundle as-is, ships in the npm package and the Docker image, and reaches MCP clients when the server opts in with `createApp({ skills: 'skills' })`. `lint:packaging` validates the tree.
 
 **Agent skill directory:** Copy skills into the directory your agent discovers (Claude Code: `.claude/skills/`, others: equivalent). Skills then load as context without referencing `framework-skills/` paths. After framework updates, run the `maintenance` skill — Phase B re-syncs the agent directory.
 
@@ -289,6 +263,7 @@ Available skills:
 | `add-app-tool` | Scaffold an MCP App tool + paired UI resource |
 | `add-resource` | Scaffold a new resource definition |
 | `add-prompt` | Scaffold a new prompt definition |
+| `add-skill` | Author a skill the server publishes in root `skills/` for the agents that use it — when one earns its place, structure, validation, delivery |
 | `add-service` | Scaffold a new service integration |
 | `add-test` | Scaffold test file for a tool, resource, or service |
 | `field-test` | Exercise tools/resources/prompts with real inputs, verify behavior, report issues |
@@ -428,6 +403,9 @@ import { getMyService } from '@/services/my-domain/my-service.js';
 - [ ] If wrapping external API: tests include at least one sparse payload case with omitted upstream fields
 - [ ] Registered in `createApp()` arrays (directly or via barrel exports)
 - [ ] Tests use `createMockContext()` from `@cyanheads/mcp-ts-core/testing`
+- [ ] Root `plugin.json` and `mcp.json` match Agent Plugins 1.0.0: unscoped server name, package metadata, one stdio entry using the full npm package name, and fixed env values only. Keep the Codex overlay's `mcpServers` pointer for user-supplied variables.
+- [ ] Any new root dev path has a root-anchored line in `.mcpbignore`; `bun run bundle` and `lint:packaging` pass
+- [ ] If the server publishes a skill in root `skills/`: `lint:packaging` passes, and `field-test` verified every gate and identifier claim against live tool behavior
 - [ ] `.codex-plugin/plugin.json` populated — `name`, `version`, `description`, `repository`, `license` from `package.json`; `interface.displayName` = the unscoped repo name (never the npm scope — `lint:packaging` enforces this); `interface.shortDescription` from `package.json` description
 - [ ] `.codex-plugin/mcp.json` updated — server name key is the unscoped repo name; every user-supplied variable (API key, contact email, instance URL) is listed in `env_vars` so Codex forwards it from the user's environment. Never write `"KEY": ""` into `env` — an empty value replaces the user's exported key and is read as unset
 - [ ] `.claude-plugin/plugin.json` populated — `name`, `version`, `description`, `author`, `repository`, `license`, `keywords` from `package.json`; inline `mcpServers` entry keyed by the unscoped repo name. Every user-supplied variable is declared under `userConfig` (`type`, `title`, `description`; `sensitive: true` for keys and tokens; `required: true` or `default: ""`) and referenced from `env` as `"KEY": "${user_config.<option>}"` — mirror the `user_config` block in `manifest.json`. Never write `"KEY": ""` into `env`

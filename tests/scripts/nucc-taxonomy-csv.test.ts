@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
-import { buildTaxonomyEntries } from '../../scripts/nucc-taxonomy-csv.js';
+import { buildTaxonomyEntries, parseCsv } from '../../scripts/nucc-taxonomy-csv.js';
 
 const HEADER = 'Code,Grouping,Classification,Specialization,Definition,Notes,Display Name,Section';
 
@@ -49,7 +49,60 @@ function byCode(rows: Row[]) {
 }
 
 describe('buildTaxonomyEntries', () => {
+  it('converts only known markup without changing other bytes', () => {
+    expect(
+      byCode([
+        {
+          code: '103T00000X',
+          definition: 'One<br/>Two <795>',
+          notes: 'Source:  NUCC <ul><li> First<li> Second</ul> end',
+        },
+      ]).get('103T00000X'),
+    ).toMatchObject({
+      definition: 'One\nTwo <795>',
+      notes: 'Source:  NUCC \n\n-  First\n-  Second\n end',
+    });
+  });
+  it('preserves every non-tag byte and every non-text CSV column across the full bundle', () => {
+    const text = readFileSync(
+      join(import.meta.dirname, '../../src/services/taxonomy/data/nucc_taxonomy_261.csv'),
+      'utf-8',
+    );
+    const rawRows = parseCsv(text)
+      .slice(1)
+      .filter((row) => row.length > 1);
+    const replacements: Record<string, string> = {
+      '<br/>': '\n',
+      '<ul>': '\n',
+      '</ul>': '\n',
+      '<li>': '\n- ',
+    };
+    for (const row of rawRows) {
+      const entry = TAXONOMY_ENTRIES.find((value) => value.code === row[0]?.trim());
+      expect(entry).toBeDefined();
+      const formatted = (cell: string | undefined) =>
+        cell?.trim().replace(/<br\/>|<\/?ul>|<li>/g, (tag) => replacements[tag] as string);
+      expect(entry).toMatchObject({
+        code: row[0]?.trim(),
+        grouping: row[1]?.trim(),
+        classification: row[2]?.trim(),
+        displayName: row[6]?.trim(),
+        section: row[7]?.trim(),
+      });
+      expect(entry?.specialization).toBe(row[3]?.trim() || undefined);
+      expect(entry?.definition).toBe(formatted(row[4]) || undefined);
+      expect(entry?.notes).toBe(formatted(row[5]) || undefined);
+      expect(entry?.status).toBe(/\bmarked inactive\b/i.test(row[5] ?? '') ? 'inactive' : 'active');
+    }
+  });
   describe('field parsing (characterization)', () => {
+    it('preserves literal reference markers and interior source spacing', () => {
+      expect(
+        byCode([{ code: '103T00000X', definition: '<795> and <797>', notes: 'Source:  NUCC' }]).get(
+          '103T00000X',
+        ),
+      ).toMatchObject({ definition: '<795> and <797>', notes: 'Source:  NUCC' });
+    });
     it('trims kept fields, omits empty optional cells, and sorts by code', () => {
       const entries = buildTaxonomyEntries(
         csv([

@@ -9,7 +9,10 @@ import type { z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { searchProvidersTool } from '@/mcp-server/tools/definitions/search-providers.tool.js';
+import {
+  createSearchProvidersTool,
+  searchProvidersTool,
+} from '@/mcp-server/tools/definitions/search-providers.tool.js';
 import { initNppesService } from '@/services/nppes/nppes-service.js';
 import { getTaxonomyService, initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
@@ -23,6 +26,7 @@ const ctx = () => createMockContext({ errors: searchProvidersTool.errors });
 interface SearchEnrichment {
   appliedTaxonomyDescription?: string;
   cap?: number;
+  continuationPostalCodes?: string[];
   notice?: string;
   resolvedTaxonomies?: { code: string; description: string }[];
   shown?: number;
@@ -31,6 +35,10 @@ interface SearchEnrichment {
 
 function enrichment(c: ReturnType<typeof ctx>): SearchEnrichment {
   return getEnrichment(c) as SearchEnrichment;
+}
+
+function contractEnrichment(result: { structuredContent?: unknown }): SearchEnrichment {
+  return result.structuredContent as SearchEnrichment;
 }
 
 function stubResults(results: unknown[]): void {
@@ -75,6 +83,228 @@ afterEach(() => {
 });
 
 describe('searchProvidersTool', () => {
+  it.each([10, 200, 201])(
+    'records exactly one notice log only for an actual clamp (%s)',
+    async (limit) => {
+      stubResults([]);
+      const c = ctx();
+      const log = vi.spyOn(c.log, 'notice');
+      await searchProvidersTool.handler(
+        searchProvidersTool.input.parse({ last_name: 'Abate', limit }),
+        c,
+      );
+      if (limit > 200)
+        expect(log).toHaveBeenCalledExactlyOnceWith('Tool limit clamped.', {
+          tool: 'npi_search_providers',
+          requested: 201,
+          applied: 200,
+        });
+      else expect(log).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects non-boolean alias options before requesting upstream', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const result = await runToolContract(searchProvidersTool, {
+      first_name: 'Bob',
+      use_first_name_alias: 'False' as unknown as boolean,
+    });
+    expect(result.structuredContent).toMatchObject({ error: { code: -32602 } });
+    expect(JSON.stringify(result.content)).toContain('use_first_name_alias');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 1.5])('rejects invalid limit %s in both deployment modes', async (limit) => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    for (const mode of [true, false]) {
+      const result = await runToolContract(createSearchProvidersTool(mode), {
+        last_name: 'Abate',
+        limit,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ error: { code: -32602 } });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('restores the advertised maximum and rejects excess before upstream when disabled', async () => {
+    const definition = createSearchProvidersTool(false);
+    expect(definition.input.shape.limit.toJSONSchema()).toMatchObject({
+      maximum: 200,
+      default: 10,
+    });
+    expect(searchProvidersTool.input.shape.limit.toJSONSchema().maximum).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect((await runToolContract(definition, { city: 'Seattle', limit: 201 })).isError).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(definition.input.parse({ city: 'Seattle' }).limit).toBe(10);
+    expect(searchProvidersTool.input.parse({ city: 'Seattle' }).limit).toBe(10);
+  });
+
+  it.each([0, 1])('retains clamp and offset/empty guidance for %s returned rows', async (count) => {
+    stubResults(Array.from({ length: count }, () => ROW));
+    const result = await runToolContract(searchProvidersTool, {
+      last_name: 'Abate',
+      limit: 201,
+      skip: 400,
+    });
+    expect(result.isError).not.toBe(true);
+    expect(contractEnrichment(result).notice).toMatch(/201.*200/);
+    expect(result.structuredContent).not.toHaveProperty('truncated');
+    expect(result.structuredContent).not.toHaveProperty('nextPage');
+    expect(JSON.stringify(result.content)).toMatch(/201.*200/);
+    if (!count) {
+      expect(contractEnrichment(result).notice).toContain('matches end before that offset');
+      expect(JSON.stringify(result.content)).toContain('matches end before that offset');
+    }
+  });
+
+  it('uses the applied limit for terminal continuation despite location filtering', async () => {
+    stubResults(
+      Array.from({ length: 200 }, (_, index) => (index === 0 ? ROW : OUT_OF_LOCATION_ROW)),
+    );
+    const result = await runToolContract(searchProvidersTool, {
+      city: 'Seattle',
+      state: 'WA',
+      limit: 201,
+      skip: 1000,
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ cap: 200, shown: 1, truncated: true });
+    expect(result.structuredContent).not.toHaveProperty('nextPage');
+    expect(contractEnrichment(result).continuationPostalCodes).toHaveLength(100);
+    for (const text of [
+      String(contractEnrichment(result).notice),
+      JSON.stringify(result.content),
+    ]) {
+      expect(text).toContain('terminal window');
+      expect(text).toContain('199 out-of-location');
+      expect(text).toMatch(/201.*200/);
+    }
+  });
+
+  it('computes overlapping next-page guidance from the applied limit', async () => {
+    stubResults(Array.from({ length: 200 }, () => ROW));
+    const result = await runToolContract(searchProvidersTool, {
+      last_name: 'Abate',
+      limit: 201,
+      skip: 950,
+    });
+    expect(result.structuredContent).toMatchObject({ nextPage: { skip: 1000, limit: 200 } });
+    expect(contractEnrichment(result).notice).toContain('first 150 row(s) repeat');
+    expect(JSON.stringify(result.content)).toContain('first 150 row(s) repeat');
+  });
+
+  it.each([
+    [{ name_search: 'Bob Smith' }, 'Bob', true],
+    [
+      { name_search: 'Bob Smith', first_name: 'Robert', use_first_name_alias: false },
+      'Robert',
+      false,
+    ],
+    [{ first_name: 'Bob', use_first_name_alias: true }, 'Bob', true],
+  ] as const)(
+    'reports effective aliases after explicit name precedence: %j',
+    async (input, first, applied) => {
+      stubResults([]);
+      const result = await runToolContract(searchProvidersTool, input);
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ appliedFirstNameAlias: applied });
+      expect(
+        new URL(String(vi.mocked(fetch).mock.calls[0]?.[0])).searchParams.get('first_name'),
+      ).toBe(first);
+      expect(JSON.stringify(result.content)).toContain(`First-name aliases:** ${applied}`);
+    },
+  );
+
+  it.each([
+    [{ name_search: 'Bob Smith', first_name: 'Ro*', use_first_name_alias: false }, 'wildcard'],
+    [{ organization_name: 'Hospital', use_first_name_alias: false }, 'no first_name'],
+    [{ name_search: 'Smith', use_first_name_alias: true }, 'no first_name'],
+  ] as const)(
+    'reports inapplicable aliases without effective metadata: %j',
+    async (input, reason) => {
+      stubResults([]);
+      const result = await runToolContract(searchProvidersTool, input);
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).not.toHaveProperty('appliedFirstNameAlias');
+      expect(contractEnrichment(result).notice).toContain(reason);
+      expect(JSON.stringify(result.content)).toContain(reason);
+      expect(contractEnrichment(result).notice).toContain('broadening');
+      expect(
+        new URL(String(vi.mocked(fetch).mock.calls[0]?.[0])).searchParams.get(
+          'use_first_name_alias',
+        ),
+      ).toBe(input.use_first_name_alias ? 'True' : 'False');
+    },
+  );
+
+  it('rejects an alias-only request with the no-search recovery on both surfaces', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const result = await runToolContract(searchProvidersTool, { use_first_name_alias: false });
+    expect(result.structuredContent).toMatchObject({
+      error: {
+        data: {
+          reason: 'no_search_criteria',
+          recovery: { hint: expect.stringContaining('Provide at least one') },
+        },
+      },
+    });
+    expect(JSON.stringify(result.content)).toContain('Provide at least one');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('preserves upstream names and omits the alias parameter by default', async () => {
+    stubResults([ROW, { ...ROW, basic: { ...ROW.basic, first_name: 'ROBERT' } }]);
+    const result = await runToolContract(searchProvidersTool, { first_name: 'Bob' });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      providers: [{ name: 'JOSEPH ABATE' }, { name: 'ROBERT ABATE' }],
+    });
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
+    expect(url.searchParams.has('use_first_name_alias')).toBe(false);
+  });
+
+  it('clamps an over-cap page and uses the applied limit for pagination on both surfaces', async () => {
+    stubResults(Array.from({ length: 200 }, () => ROW));
+    const result = await runToolContract(searchProvidersTool, { last_name: 'Abate', limit: 201 });
+    expect(result.isError).not.toBe(true);
+    expect(new URL(String(vi.mocked(fetch).mock.calls[0]?.[0])).searchParams.get('limit')).toBe(
+      '200',
+    );
+    expect(result.structuredContent).toMatchObject({
+      cap: 200,
+      truncated: true,
+      nextPage: { skip: 200, limit: 200 },
+    });
+    expect(contractEnrichment(result).notice).toMatch(/201.*200/);
+    expect(JSON.stringify(result.content)).toMatch(/201.*200/);
+  });
+
+  it('forwards false aliases for the name shortcut and reports the effective setting on both surfaces', async () => {
+    stubResults([]);
+    const result = await runToolContract(searchProvidersTool, {
+      name_search: 'Bob Smith',
+      use_first_name_alias: false,
+    });
+    expect(result.isError).not.toBe(true);
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      first_name: 'Bob',
+      last_name: 'Smith',
+      use_first_name_alias: 'False',
+    });
+    expect(result.structuredContent).toMatchObject({ appliedFirstNameAlias: false });
+    expect(contractEnrichment(result).notice).toMatch(/broadening/);
+    expect(JSON.stringify(result.content)).toContain('false');
+  });
+
   it('searches by specialty, resolves the taxonomy, and echoes it', async () => {
     stubResults([ROW]);
     const c = ctx();
@@ -1144,7 +1374,9 @@ describe('searchProvidersTool wildcard postal_code and city (#12)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
     expect(text).toContain('postal_code');
-    expect(text).toMatch(/2.9 digits followed by one trailing "\*"/);
+    const error = (result.structuredContent as { error: { message: string } }).error;
+    expect(error.message).toContain('2–9 digits followed by one trailing "*"');
+    expect(text).toContain('2–9 digits followed by one trailing "\\*"');
   });
 });
 

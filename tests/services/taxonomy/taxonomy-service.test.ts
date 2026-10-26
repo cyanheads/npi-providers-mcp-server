@@ -648,7 +648,8 @@ describe('TaxonomyService', () => {
       expect(svc.get('207QA0505X')).not.toHaveProperty('notes');
       const withNotes = TAXONOMY_ENTRIES.filter((e) => e.notes !== undefined);
       expect(withNotes.length).toBeGreaterThan(0);
-      expect(withNotes.every((e) => e.notes === e.notes?.trim() && e.notes !== '')).toBe(true);
+      expect(withNotes.every((e) => e.notes !== '')).toBe(true);
+      expect(withNotes.every((e) => !/<br\/>|<\/?ul>|<li>/.test(e.notes ?? ''))).toBe(true);
     });
   });
 

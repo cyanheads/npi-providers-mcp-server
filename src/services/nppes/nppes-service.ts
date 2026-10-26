@@ -360,6 +360,8 @@ export class NppesService {
     };
     if (params.enumerationType) query.enumeration_type = params.enumerationType;
     if (params.firstName) query.first_name = params.firstName;
+    if (params.useFirstNameAlias !== undefined)
+      query.use_first_name_alias = params.useFirstNameAlias ? 'True' : 'False';
     if (params.lastName) query.last_name = params.lastName;
     if (params.organizationName) query.organization_name = params.organizationName;
     if (params.taxonomyDescription) query.taxonomy_description = params.taxonomyDescription;

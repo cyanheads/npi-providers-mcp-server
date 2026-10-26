@@ -71,9 +71,20 @@ const INACTIVE_MARKER = /\bmarked inactive\b/i;
 /** A named replacement: `use <code>` or `use value <code>` (NUCC writes both). */
 const REPLACEMENT_PATTERN = /\buse\s+(?:value\s+)?(\d{3}[A-Z0-9]{6}X)\b/i;
 
+/** Convert only NUCC's known markup tokens; preserve all other bytes. */
+function formatText(text: string): string {
+  return text
+    .replaceAll('<br/>', '\n')
+    .replaceAll('<ul>', '\n')
+    .replaceAll('</ul>', '\n')
+    .replaceAll('<li>', '\n- ');
+}
+
 /**
  * Parse NUCC CSV text into taxonomy entries sorted by code. Every field is trimmed and
- * optional fields are omitted when their cell is empty. `status` is `inactive` when the
+ * optional fields are omitted when their cell is empty. Known HTML breaks/lists in
+ * Definition and Notes become plain text; all other interior bytes are retained.
+ * `status` is `inactive` when the
  * Notes cell says `marked inactive`; an inactive entry's `replacedBy` is the code its Notes,
  * else its Definition, names after `use`. Throws on an unexpected header, a short or long
  * row, a malformed code, an unknown section, or a replacement that is missing or inactive.
@@ -118,8 +129,8 @@ export function buildTaxonomyEntries(csvText: string): TaxonomyEntry[] {
       classification: (cols[2] ?? '').trim(),
       ...(specialization ? { specialization } : {}),
       displayName: (cols[6] ?? '').trim(),
-      ...(definition ? { definition } : {}),
-      ...(notes ? { notes } : {}),
+      ...(definition ? { definition: formatText(definition) } : {}),
+      ...(notes ? { notes: formatText(notes) } : {}),
       section,
       status,
       ...(replacedBy ? { replacedBy } : {}),

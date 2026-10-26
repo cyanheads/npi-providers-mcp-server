@@ -1,13 +1,13 @@
 <div align="center">
   <h1>@cyanheads/npi-providers-mcp-server</h1>
   <p><b>Search NPPES providers and resolve NUCC specialty codes via MCP over STDIO or Streamable HTTP.</b>
-  <div>3 Tools • 2 Resources</div>
+  <div>3 Tools • 2 Data Resources • 1 Skill</div>
   </p>
 </div>
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.4.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/npi-providers-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.2.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/%40cyanheads%2Fnpi-providers-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/npi-providers-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.2-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.4.1-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/npi-providers-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.4.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/%40cyanheads%2Fnpi-providers-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/npi-providers-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -29,7 +29,7 @@
 
 ## Overview
 
-US healthcare provider directory over the NPPES NPI Registry, with plain-language specialty terms resolved offline against a bundled NUCC taxonomy. Search providers by name, organization, location, and specialty; decode NPIs into professional-practice provider records; and resolve or browse the NUCC taxonomy directly. Runs as a stdio process, a local Streamable HTTP server, or the public hosted endpoint above.
+The US healthcare provider directory from the NPI Registry. Search doctors and organizations by name, location, and specialty in plain language, decode any NPI to its provider record, and browse the NUCC specialty taxonomy.
 
 ### Tools
 
@@ -48,29 +48,32 @@ US healthcare provider directory over the NPPES NPI Registry, with plain-languag
 
 All resource data is also reachable via tools; the resources are convenience twins for resource-capable clients.
 
+The bundled `npi-providers-guide` skill is available at `skill://npi-providers-guide/SKILL.md`. It covers specialty cohorts, provider identity, and the limits of exhaustive directory searches.
+
 ## Capability reference
 
 ### `npi_search_providers` <sub>tool</sub>
 
-- Inputs: `name_search` or `first_name` / `last_name` (individuals), `organization_name` (organizations), `provider_type`, `city` / `state` / `postal_code` (practice addresses only), and a plain-language `specialty` resolved through the bundled NUCC taxonomy, or an exact `taxonomy_description` (never both). At least one criterion is required, state alone is rejected, and individual and organization criteria can't be mixed. A trailing `*` needs at least 2 leading characters; `postal_code` takes 5 or 9 digits or a 2–9 digit prefix ending in `*`. `limit` 1–200 (default 10), `skip` 0–1000
-- Output: compact rows (`npi`, name, primary taxonomy, primary practice `city` / `state` / `postalCode`, `status`), with `matchedLocation` / `matchedOtherName` naming the practice location or other name a row matched through, and `resolvedTaxonomies` / `appliedTaxonomyDescription` echoing the specialty resolution. No true total is reported: a full page names `nextPage`, and the terminal window (`skip` 1000, `limit` 200) returns `continuationPostalCodes` that continue the search
+- Inputs: `name_search` or `first_name` / `last_name` (individuals), `organization_name` (organizations), `provider_type`, `city` / `state` / `postal_code` (practice addresses only), and a plain-language `specialty` resolved through the bundled NUCC taxonomy, or an exact `taxonomy_description` (never both). At least one criterion is required, state alone is rejected, and individual and organization criteria can't be mixed. A trailing `*` needs at least 2 leading characters; `postal_code` takes 5 or 9 digits or a 2–9 digit prefix ending in `*`. Positive `limit` (clamped to 200, default 10), `skip` 0–1000. Optional `use_first_name_alias` controls upstream first-name variants; omitted defaults to true for a non-wildcard first name. When supplied for a wildcard/no-first-name search, the option is reported as inapplicable
+- Output: compact rows (`npi`, name, primary taxonomy, primary practice `city` / `state` / `postalCode`, `status`), with `matchedLocation` / `matchedOtherName` naming the practice location or other name a row matched through, and `resolvedTaxonomies` / `appliedTaxonomyDescription` echoing the specialty resolution. `appliedFirstNameAlias` reports the effective boolean only for a non-wildcard first name. No true total is reported: a full page names `nextPage`, and the terminal window (`skip` 1000, `limit` 200) returns `continuationPostalCodes` that continue the search
 - Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `mixed_provider_criteria`, `unresolved_specialty`, `invalid_search_field`
 
 ---
 
 ### `npi_get_provider` <sub>tool</sub>
 
-- Accepts `npis`: a single NPI or up to 10, each exactly 10 digits and checked against its NPI check digit before any API call
+- Accepts `npis`: a single NPI or up to 100 raw entries, each exactly 10 digits. Deduplicates, checks every check digit, then looks up the first 10 distinct valid NPIs; optional `unprocessed` lists the remaining valid NPIs in order. With `NPI_CLAMP_LIMITS=false`, the raw array maximum is 10
 - Partitions the batch into `found` (decoded records: taxonomies with license, practice addresses, credential, identifiers, FHIR/Direct endpoints, status — only LOCATION address rows for individual providers, so their mailing address is withheld), `notFound` (confirmed absence), `errored` (upstream failure — retry these), and `invalid` (failed the check digit, never looked up)
-- Typed error reasons: `invalid_npi_format` (every NPI failed the check digit), `none_found` (every NPI looked up is a confirmed absence); an upstream failure surfaces as that underlying error instead
+- Typed error reasons: `invalid_npi_format` (every NPI failed the check digit), `none_found` (every NPI looked up is a confirmed absence); an upstream failure surfaces as that underlying error instead. Error messages and structured error data retain every invalid NPI and any unprocessed remainder
 
 ---
 
 ### `npi_lookup_taxonomy` <sub>tool</sub>
 
-- Modes: `resolve` (`query` → matching active codes), `get` (exact `code` → full entry with NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by `grouping` and NPI `section`); `resolve` / `browse` take `limit` (≤50, default 20) and `skip` (0–1000) and disclose `truncated`
+- Modes: `resolve` (`query` → matching active codes), `get` (exact `code` → full entry with NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by `grouping` and NUCC `section`). Section describes the taxonomy category, not a provider's NPI entity type; use search's `provider_type` for that. `resolve` / `browse` take positive `limit` (clamped to 50, default 20) and `skip` (0–1000) and disclose `truncated`; wrong-mode arguments are rejected before defaults apply
 - Every entry carries `status` (`active` / `inactive`) and an inactive code's `replacedBy`; `resolve` excludes inactive codes, while `get` and `browse` return them. A resolved entry's `specialization` (or `classification` when absent) is the exact value `npi_search_providers.taxonomy_description` accepts
-- Typed error reasons: `no_match`, `missing_argument`
+- Definitions and notes contain readable line breaks and list bullets in place of NUCC HTML markup; literal markers and source text remain intact
+- Typed error reasons: `no_match`, `missing_argument`, `wrong_mode_argument`
 
 ---
 
@@ -105,111 +108,32 @@ Agent-friendly output:
 
 ## Getting started
 
-### Public Hosted Instance
+Connect to the hosted instance, no install:
 
-A public instance is available at `https://npi-providers.caseyjhand.com/mcp` — no installation required. Point any MCP client at it via Streamable HTTP, with this client config:
-
-```json
-{
-  "mcpServers": {
-    "npi-providers-mcp-server": {
-      "type": "streamable-http",
-      "url": "https://npi-providers.caseyjhand.com/mcp"
-    }
-  }
-}
+```sh
+claude mcp add --transport http npi-providers-mcp-server https://npi-providers.caseyjhand.com/mcp
 ```
 
-### Self-Hosted / Local
+Or run it locally:
 
-Add the following to your MCP client configuration file. No API key is required — the upstream NPPES registry is keyless.
-
-```json
-{
-  "mcpServers": {
-    "npi-providers-mcp-server": {
-      "type": "stdio",
-      "command": "bunx",
-      "args": ["@cyanheads/npi-providers-mcp-server@latest"],
-      "env": {
-        "MCP_TRANSPORT_TYPE": "stdio",
-        "MCP_LOG_LEVEL": "info"
-      }
-    }
-  }
-}
+```sh
+claude mcp add npi-providers-mcp-server -- npx -y @cyanheads/npi-providers-mcp-server
 ```
 
-Or with npx (no Bun required):
+For other clients, add this to the MCP config file:
 
 ```json
 {
   "mcpServers": {
     "npi-providers-mcp-server": {
-      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@cyanheads/npi-providers-mcp-server@latest"],
-      "env": {
-        "MCP_TRANSPORT_TYPE": "stdio",
-        "MCP_LOG_LEVEL": "info"
-      }
+      "args": ["-y", "@cyanheads/npi-providers-mcp-server"]
     }
   }
 }
 ```
 
-Or with Docker:
-
-```json
-{
-  "mcpServers": {
-    "npi-providers-mcp-server": {
-      "type": "stdio",
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "MCP_TRANSPORT_TYPE=stdio", "ghcr.io/cyanheads/npi-providers-mcp-server:latest"]
-    }
-  }
-}
-```
-
-For Streamable HTTP, set the transport and start the server:
-
-```sh
-MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 bun run start:http
-# Server listens at http://localhost:3010/mcp
-```
-
-### Prerequisites
-
-- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
-- No API key — the NPPES NPI Registry API is public and keyless. The NUCC taxonomy is bundled, so there is no second data source to provision.
-
-### Installation
-
-1. **Clone the repository:**
-
-```sh
-git clone https://github.com/cyanheads/npi-providers-mcp-server.git
-```
-
-2. **Navigate into the directory:**
-
-```sh
-cd npi-providers-mcp-server
-```
-
-3. **Install dependencies:**
-
-```sh
-bun install
-```
-
-4. **Configure environment (optional):**
-
-```sh
-cp .env.example .env
-# edit .env only if you need to override the NPPES base URL or timeout
-```
+No API key is required. For Docker or a source build, see [Running the server](#running-the-server).
 
 ## Configuration
 
@@ -219,6 +143,7 @@ No required variables — the server runs out of the box against the keyless NPP
 |:---|:---|:---|
 | `NPPES_API_BASE_URL` | NPPES NPI Registry API base URL. Override for a private mirror or testing. | `https://npiregistry.cms.hhs.gov/api` |
 | `NPPES_TIMEOUT_MS` | Per-request HTTP timeout for NPPES calls, in milliseconds. | `15000` |
+| `NPI_CLAMP_LIMITS` | Clamp search limits to 200 and taxonomy limits to 50; accept 100 raw NPIs while looking up ten distinct valid NPIs. False restores schema upper bounds of 200, 50 and ten raw NPIs. Every actual clamp emits a notice, log and counter event. | `true` |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http`. | `stdio` |
 | `MCP_HTTP_PORT` | Port for the HTTP server. | `3010` |
 | `MCP_AUTH_MODE` | Auth mode: `none`, `jwt`, or `oauth`. | `none` |
@@ -233,6 +158,16 @@ See [`.env.example`](./.env.example) for the full list of optional overrides.
 ## Running the server
 
 ### Local development
+
+Requires [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+). The NPPES registry is keyless and the NUCC taxonomy is bundled.
+
+- **Clone and install:**
+
+  ```sh
+  git clone https://github.com/cyanheads/npi-providers-mcp-server.git
+  cd npi-providers-mcp-server && bun install
+  cp .env.example .env   # optional NPPES base URL and timeout overrides
+  ```
 
 - **Build and run:**
 
@@ -273,6 +208,7 @@ The Dockerfile defaults to HTTP transport, stateless session mode, and logs to `
 | `src/mcp-server/resources` | Resource definitions (`*.resource.ts`). |
 | `src/services/nppes` | NPPES NPI Registry API client — query building, `Errors[]`-on-200 detection, normalization. |
 | `src/services/taxonomy` | Bundled NUCC taxonomy service — in-memory index for resolve / get / browse. |
+| `skills/` | Published agent guide, delivered with the package and over MCP. |
 | `tests/` | Unit and integration tests mirroring `src/`. |
 
 ## Development guide

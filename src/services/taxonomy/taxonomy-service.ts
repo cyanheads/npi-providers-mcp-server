@@ -576,7 +576,7 @@ export class TaxonomyService {
 
   /**
    * Browse the hierarchy, optionally filtered by grouping (case-insensitive
-   * substring) and/or NPI section. Every code is included, inactive ones flagged by
+   * substring) and/or NUCC section. Every code is included, inactive ones flagged by
    * `status`. Entries are returned sorted by code. `skip` pages the
    * sorted set (`slice(skip, skip + limit)`); the code sort is total, so paging a grouping
    * larger than a single page never skips or duplicates an entry across calls.

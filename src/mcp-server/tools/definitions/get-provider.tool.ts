@@ -1,15 +1,17 @@
 /**
  * @fileoverview npi_get_provider — fetch the NPPES professional-practice record for
- * one or more NPIs (up to 10). Checks each NPI's check digit first, then fans out one
- * call per valid NPI with partial-success reporting.
+ * one or more NPIs. Checks each distinct NPI's check digit first, then looks up
+ * at most 10 valid NPIs with partial-success and unprocessed-remainder reporting.
  * @module mcp-server/tools/definitions/get-provider.tool
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
+import { ErrorHandler } from '@cyanheads/mcp-ts-core/utils';
 import { hasValidNpiCheckDigit } from '@/mcp-server/npi-check-digit.js';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
 import type { ProviderRecord } from '@/services/nppes/types.js';
+import { recordLimitClamp } from '@/utils/limit-clamp.js';
 
 const INVALID_CHECK_DIGIT_REASON =
   'Fails the NPI check digit — not a valid NPI (usually a typo or transposed digits); not looked up.';
@@ -323,190 +325,246 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
   return lines.join('\n');
 }
 
-export const getProviderTool = tool('npi_get_provider', {
-  description:
-    "Fetch the NPPES record for one or more NPI numbers (up to 10 per call). Decodes an NPI from a claim, prescription, or another health data source into the provider's professional-practice profile: every taxonomy with its primary flag, license number and state; practice addresses with phone and fax (only LOCATION rows are kept for individual providers, so their mailing address is withheld; organizations also carry their mailing address); credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. Each NPI must be 10 digits with a valid check digit (its last digit); an NPI failing the check digit lands in invalid and is never looked up. Reports partial success: valid NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.",
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+/** Build the batch schema using the configured raw-entry limit. */
+export function createGetProviderTool(clampLimits: boolean) {
+  return tool('npi_get_provider', {
+    description: `Fetch NPPES records from up to ${clampLimits ? 100 : 10} raw NPI entries per call. Deduplicate in input order, validate check digits, and look up the first 10 distinct valid NPIs; remaining valid NPIs are listed in unprocessed and are never looked up. Decodes an NPI from a claim, prescription, or another health data source into the provider's professional-practice profile: every taxonomy with its primary flag, license number and state; practice addresses with phone and fax (only LOCATION rows are kept for individual providers, so their mailing address is withheld; organizations also carry their mailing address); credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. Each NPI must be 10 digits with a valid check digit (its last digit); every NPI failing the check digit lands in invalid and is never looked up. Reports partial success: valid NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.`,
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
-  errors: [
-    {
-      reason: 'none_found',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'Every requested NPI with a valid check digit returned a confirmed no-record response — none failed with an upstream error (those surface as the underlying service/timeout error instead).',
-      recovery:
-        'Verify the NPI(s); deactivated or never-enumerated numbers return nothing. Search by name to confirm.',
+    errors: [
+      {
+        reason: 'none_found',
+        code: JsonRpcErrorCode.NotFound,
+        when: 'Every attempted NPI lookup returned a confirmed no-record response — none failed with an upstream error (those surface as the underlying service/timeout error instead). Unprocessed NPIs remain unresolved.',
+        recovery:
+          'Verify the NPI(s); deactivated or never-enumerated numbers return nothing. Search by name to confirm.',
+      },
+      {
+        reason: 'invalid_npi_format',
+        code: JsonRpcErrorCode.ValidationError,
+        when: 'Every requested NPI failed the NPI check digit, so none was looked up.',
+        recovery:
+          'The last digit does not match the NPI check digit, which usually means a typo or transposed digits — re-copy the NPI, or find it by name with npi_search_providers.',
+      },
+    ],
+
+    input: z.object({
+      npis: z
+        .union([
+          NpiString,
+          z
+            .array(NpiString)
+            .min(1)
+            .max(clampLimits ? 100 : 10)
+            .describe(
+              `An array of up to ${clampLimits ? 100 : 10} ten-digit NPIs; only the first 10 distinct valid NPIs are looked up.`,
+            ),
+        ])
+        .describe(
+          `A single 10-digit NPI, or an array of up to ${clampLimits ? 100 : 10}. Entries are deduplicated in order, then check digits are validated; the first 10 distinct valid NPIs are looked up and any remaining valid NPIs are listed in unprocessed. Every invalid NPI is reported in invalid.`,
+        ),
+    }),
+
+    output: z.object({
+      unprocessed: z
+        .array(NpiString)
+        .optional()
+        .describe(
+          'Distinct valid NPIs beyond the first 10, in input order; not looked up. Present only when the lookup limit is exceeded.',
+        ),
+      found: z.array(FullProviderRecordSchema).describe('Decoded records for NPIs that resolved.'),
+      notFound: z
+        .array(
+          z
+            .object({
+              npi: z.string().describe('The requested NPI with no record.'),
+              reason: z.string().describe('Why it returned nothing (e.g. no registry record).'),
+            })
+            .describe('A requested NPI that returned no record.'),
+        )
+        .describe(
+          'NPIs with a valid check digit that returned no record (deactivated or never enumerated). A confirmed absence, not a failure.',
+        ),
+      errored: z
+        .array(
+          z
+            .object({
+              npi: z.string().describe('The requested NPI whose lookup failed operationally.'),
+              reason: z
+                .string()
+                .describe('The upstream failure reason (service unavailable, timeout, etc.).'),
+            })
+            .describe('A requested NPI whose lookup failed with an upstream error.'),
+        )
+        .describe(
+          'NPIs whose lookups failed with an upstream/transport error (service unavailable, timeout) — distinct from a confirmed miss in notFound. These are unresolved, not absent; retry them.',
+        ),
+      invalid: z
+        .array(
+          z
+            .object({
+              npi: z.string().describe('The requested NPI that failed the check digit.'),
+              reason: z.string().describe('Why the NPI was rejected.'),
+            })
+            .describe('A requested NPI that failed the NPI check digit.'),
+        )
+        .describe(
+          'NPIs that failed the NPI check digit — not valid NPIs, usually a typo. They were never looked up, so they are neither confirmed misses nor upstream failures.',
+        ),
+    }),
+
+    enrichment: {
+      totalCount: z
+        .number()
+        .describe('Number of provider records that resolved from the requested NPIs.'),
+      notice: z
+        .string()
+        .optional()
+        .describe(
+          'Guidance when some NPIs failed the check digit, returned no record, or hit an upstream error.',
+        ),
     },
-    {
-      reason: 'invalid_npi_format',
-      code: JsonRpcErrorCode.ValidationError,
-      when: 'Every requested NPI failed the NPI check digit, so none was looked up.',
-      recovery:
-        'The last digit does not match the NPI check digit, which usually means a typo or transposed digits — re-copy the NPI, or find it by name with npi_search_providers.',
-    },
-  ],
 
-  input: z.object({
-    npis: z
-      .union([
-        NpiString,
-        z.array(NpiString).min(1).max(10).describe('An array of up to 10 ten-digit NPIs.'),
-      ])
-      .describe(
-        'A single 10-digit NPI, or an array of up to 10. Each must be exactly 10 digits; each is also checked against its NPI check digit before any API call, and one that fails is reported in invalid.',
-      ),
-  }),
-
-  output: z.object({
-    found: z.array(FullProviderRecordSchema).describe('Decoded records for NPIs that resolved.'),
-    notFound: z
-      .array(
-        z
-          .object({
-            npi: z.string().describe('The requested NPI with no record.'),
-            reason: z.string().describe('Why it returned nothing (e.g. no registry record).'),
-          })
-          .describe('A requested NPI that returned no record.'),
-      )
-      .describe(
-        'NPIs with a valid check digit that returned no record (deactivated or never enumerated). A confirmed absence, not a failure.',
-      ),
-    errored: z
-      .array(
-        z
-          .object({
-            npi: z.string().describe('The requested NPI whose lookup failed operationally.'),
-            reason: z
-              .string()
-              .describe('The upstream failure reason (service unavailable, timeout, etc.).'),
-          })
-          .describe('A requested NPI whose lookup failed with an upstream error.'),
-      )
-      .describe(
-        'NPIs whose lookups failed with an upstream/transport error (service unavailable, timeout) — distinct from a confirmed miss in notFound. These are unresolved, not absent; retry them.',
-      ),
-    invalid: z
-      .array(
-        z
-          .object({
-            npi: z.string().describe('The requested NPI that failed the check digit.'),
-            reason: z.string().describe('Why the NPI was rejected.'),
-          })
-          .describe('A requested NPI that failed the NPI check digit.'),
-      )
-      .describe(
-        'NPIs that failed the NPI check digit — not valid NPIs, usually a typo. They were never looked up, so they are neither confirmed misses nor upstream failures.',
-      ),
-  }),
-
-  enrichment: {
-    totalCount: z
-      .number()
-      .describe('Number of provider records that resolved from the requested NPIs.'),
-    notice: z
-      .string()
-      .optional()
-      .describe(
-        'Guidance when some NPIs failed the check digit, returned no record, or hit an upstream error.',
-      ),
-  },
-
-  async handler(input, ctx) {
-    const npis = Array.isArray(input.npis) ? input.npis : [input.npis];
-    // De-dupe while preserving order.
-    const unique = [...new Set(npis)];
-    // A failing check digit is a typo, not a registry miss: report it and skip the lookup.
-    const invalid = unique
-      .filter((npi) => !hasValidNpiCheckDigit(npi))
-      .map((npi) => ({ npi, reason: INVALID_CHECK_DIGIT_REASON }));
-    const lookups = unique.filter(hasValidNpiCheckDigit);
-    const nppes = getNppesService();
-
-    const settled = await Promise.allSettled(lookups.map((npi) => nppes.getByNumber(npi, ctx)));
-
-    const found: z.infer<typeof FullProviderRecordSchema>[] = [];
-    const notFound: { npi: string; reason: string }[] = [];
-    const errored: { npi: string; reason: string }[] = [];
-    const failures: unknown[] = [];
-
-    // Three-way partition. A fulfilled-null leg is a CONFIRMED absence (result_count 0);
-    // a rejected leg is an OPERATIONAL failure (service unavailable / timeout / non-OK
-    // status / malformed body, already retried by the service). Never conflate the two: a
-    // failure reported as "not found" would tell the caller to fix a valid NPI during an outage.
-    for (const [idx, res] of settled.entries()) {
-      const npi = lookups[idx] as string;
-      if (res.status === 'fulfilled') {
-        if (res.value) found.push(toFullRecord(res.value));
-        else notFound.push({ npi, reason: 'No record in the NPPES registry for this NPI.' });
-      } else {
-        errored.push({
-          npi,
-          reason: res.reason instanceof Error ? res.reason.message : String(res.reason),
+    async handler(input, ctx) {
+      const npis = Array.isArray(input.npis) ? input.npis : [input.npis];
+      // De-dupe while preserving order.
+      const unique = [...new Set(npis)];
+      // A failing check digit is a typo, not a registry miss: report it and skip the lookup.
+      const invalid = unique
+        .filter((npi) => !hasValidNpiCheckDigit(npi))
+        .map((npi) => ({ npi, reason: INVALID_CHECK_DIGIT_REASON }));
+      const valid = unique.filter(hasValidNpiCheckDigit);
+      const lookups = valid.slice(0, 10);
+      const unprocessed = valid.slice(10);
+      if (unprocessed.length > 0)
+        recordLimitClamp(ctx, {
+          tool: 'npi_get_provider',
+          requested: valid.length,
+          applied: lookups.length,
         });
-        failures.push(res.reason);
-      }
-    }
+      const nppes = getNppesService();
 
-    if (found.length === 0) {
-      // Any operational failure means we can't honestly claim the batch was absent —
-      // surface the real upstream error (its code, reason, and recovery) instead of
-      // none_found. Only when every miss is a confirmed absence do we throw none_found.
-      if (failures.length > 0) throw failures[0];
-      const invalidList = invalid.map((i) => i.npi).join(', ');
-      if (lookups.length === 0) {
+      const settled = await Promise.allSettled(lookups.map((npi) => nppes.getByNumber(npi, ctx)));
+
+      const found: z.infer<typeof FullProviderRecordSchema>[] = [];
+      const notFound: { npi: string; reason: string }[] = [];
+      const errored: { npi: string; reason: string }[] = [];
+      const failures: unknown[] = [];
+
+      // Three-way partition. A fulfilled-null leg is a CONFIRMED absence (result_count 0);
+      // a rejected leg is an OPERATIONAL failure (service unavailable / timeout / non-OK
+      // status / malformed body, already retried by the service). Never conflate the two: a
+      // failure reported as "not found" would tell the caller to fix a valid NPI during an outage.
+      for (const [idx, res] of settled.entries()) {
+        const npi = lookups[idx] as string;
+        if (res.status === 'fulfilled') {
+          if (res.value) found.push(toFullRecord(res.value));
+          else notFound.push({ npi, reason: 'No record in the NPPES registry for this NPI.' });
+        } else {
+          errored.push({
+            npi,
+            reason: res.reason instanceof Error ? res.reason.message : String(res.reason),
+          });
+          failures.push(res.reason);
+        }
+      }
+
+      if (found.length === 0) {
+        // Any operational failure means we can't honestly claim the batch was absent —
+        // surface the real upstream error (its code, reason, and recovery) instead of
+        // none_found. Only when every miss is a confirmed absence do we throw none_found.
+        const invalidList = invalid.map((i) => i.npi).join(', ');
+        const remainderNote =
+          unprocessed.length > 0
+            ? ` Attempted ${lookups.length} valid NPI lookup(s); unprocessed (not looked up): ${unprocessed.join(', ')}.`
+            : '';
+        const invalidNote =
+          invalid.length > 0
+            ? ` ${invalid.length} failed the NPI check digit and were not looked up: ${invalidList}.`
+            : '';
+        const errorData = { invalid, ...(unprocessed.length > 0 ? { unprocessed } : {}) };
+        if (failures.length > 0) {
+          const failure = failures[0];
+          if (invalid.length === 0 && unprocessed.length === 0) throw failure;
+          const classified = ErrorHandler.classifyOnly(failure);
+          throw new McpError(
+            classified.code,
+            `${classified.message}${invalidNote}${remainderNote}`,
+            { ...(failure instanceof McpError ? failure.data : classified.data), ...errorData },
+            { cause: failure },
+          );
+        }
+        if (lookups.length === 0) {
+          throw ctx.fail(
+            'invalid_npi_format',
+            `Every requested NPI failed the NPI check digit: ${invalidList}.`,
+            errorData,
+          );
+        }
         throw ctx.fail(
-          'invalid_npi_format',
-          `Every requested NPI failed the NPI check digit: ${invalidList}.`,
+          'none_found',
+          `None of the ${lookups.length} attempted valid NPI lookup(s) returned a record.${invalidNote}${remainderNote}`,
+          errorData,
         );
       }
-      const invalidNote =
-        invalid.length > 0
-          ? ` ${invalid.length} failed the NPI check digit and ${invalid.length === 1 ? 'was' : 'were'} not looked up: ${invalidList}.`
-          : '';
-      throw ctx.fail(
-        'none_found',
-        `None of the ${unique.length} requested NPI(s) returned a record.${invalidNote}`,
-      );
-    }
 
-    ctx.enrich.total(found.length);
-    const notices: string[] = [];
-    if (invalid.length > 0) {
-      notices.push(
-        `${invalid.length} of ${unique.length} NPI(s) failed the NPI check digit — not valid NPIs (usually a typo) and not looked up.`,
-      );
-    }
-    if (notFound.length > 0) {
-      notices.push(
-        `${notFound.length} of ${unique.length} NPI(s) returned no record — deactivated or never enumerated.`,
-      );
-    }
-    if (errored.length > 0) {
-      notices.push(
-        `${errored.length} of ${unique.length} NPI(s) could not be reached due to an upstream error — unresolved, not absent; retry them.`,
-      );
-    }
-    if (notices.length > 0) ctx.enrich.notice(`${notices.join(' ')} Found ${found.length}.`);
+      ctx.enrich.total(found.length);
+      const notices: string[] = [];
+      if (unprocessed.length > 0)
+        notices.push(
+          `Attempted ${lookups.length} valid NPI lookup(s); ${unprocessed.length} remaining valid NPI(s) were not looked up and are listed in unprocessed.`,
+        );
+      if (invalid.length > 0) {
+        notices.push(
+          `${invalid.length} of ${unique.length} NPI(s) failed the NPI check digit — not valid NPIs (usually a typo) and not looked up.`,
+        );
+      }
+      if (notFound.length > 0) {
+        notices.push(
+          `${notFound.length} of ${unique.length} NPI(s) returned no record — deactivated or never enumerated.`,
+        );
+      }
+      if (errored.length > 0) {
+        notices.push(
+          `${errored.length} of ${unique.length} NPI(s) could not be reached due to an upstream error — unresolved, not absent; retry them.`,
+        );
+      }
+      if (notices.length > 0) ctx.enrich.notice(`${notices.join(' ')} Found ${found.length}.`);
 
-    return { found, notFound, errored, invalid };
-  },
+      return {
+        found,
+        notFound,
+        errored,
+        invalid,
+        ...(unprocessed.length > 0 ? { unprocessed } : {}),
+      };
+    },
 
-  format: (result) => {
-    const lines: string[] = [];
-    if (result.found.length > 0) {
-      for (const r of result.found) lines.push(renderRecord(r));
-    }
-    if (result.notFound.length > 0) {
-      lines.push('\n## Not found');
-      for (const nf of result.notFound) lines.push(`- **${nf.npi}**: ${nf.reason}`);
-    }
-    if (result.errored.length > 0) {
-      lines.push('\n## Errored (upstream failure — unresolved, not absent; retry)');
-      for (const e of result.errored) lines.push(`- **${e.npi}**: ${e.reason}`);
-    }
-    if (result.invalid.length > 0) {
-      lines.push('\n## Invalid (failed the NPI check digit — not looked up)');
-      for (const i of result.invalid) lines.push(`- **${i.npi}**: ${i.reason}`);
-    }
-    return [{ type: 'text', text: lines.join('\n\n') }];
-  },
-});
+    format: (result) => {
+      const lines: string[] = [];
+      if (result.found.length > 0) {
+        for (const r of result.found) lines.push(renderRecord(r));
+      }
+      if (result.notFound.length > 0) {
+        lines.push('\n## Not found');
+        for (const nf of result.notFound) lines.push(`- **${nf.npi}**: ${nf.reason}`);
+      }
+      if (result.errored.length > 0) {
+        lines.push('\n## Errored (upstream failure — unresolved, not absent; retry)');
+        for (const e of result.errored) lines.push(`- **${e.npi}**: ${e.reason}`);
+      }
+      if (result.invalid.length > 0) {
+        lines.push('\n## Invalid (failed the NPI check digit — not looked up)');
+        for (const i of result.invalid) lines.push(`- **${i.npi}**: ${i.reason}`);
+      }
+      if (result.unprocessed?.length) {
+        lines.push('\n## Unprocessed (valid NPIs — not looked up)');
+        for (const npi of result.unprocessed) lines.push(`- ${npi}`);
+      }
+      return [{ type: 'text', text: lines.join('\n\n') }];
+    },
+  });
+}
+
+/** Canonical default definition retained for static discovery. */
+export const getProviderTool = createGetProviderTool(true);

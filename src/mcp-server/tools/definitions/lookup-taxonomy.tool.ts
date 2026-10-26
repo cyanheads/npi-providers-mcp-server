@@ -12,6 +12,7 @@ import {
   stopWordOnlyQuery,
 } from '@/services/taxonomy/taxonomy-service.js';
 import type { TaxonomyEntry } from '@/services/taxonomy/types.js';
+import { recordLimitClamp } from '@/utils/limit-clamp.js';
 
 const EntrySchema = z
   .object({
@@ -43,7 +44,9 @@ const EntrySchema = z
       ),
     section: z
       .enum(['Individual', 'Non-Individual'])
-      .describe('NPI enumeration scope: Individual (NPI-1) or Non-Individual (NPI-2).'),
+      .describe(
+        'NUCC section. Individual includes Group codes; Non-Individual covers facilities, suppliers and agencies. Provider entity type comes from NPPES enumeration_type.',
+      ),
     status: z
       .enum(['active', 'inactive'])
       .describe(
@@ -74,7 +77,7 @@ function toEntry(e: TaxonomyEntry): z.infer<typeof EntrySchema> {
 function renderEntry(e: z.infer<typeof EntrySchema>): string {
   const lines = [
     `### ${e.displayName}`,
-    `**Code:** ${e.code} | **Section:** ${e.section} (${e.section === 'Individual' ? 'NPI-1' : 'NPI-2'}) | **Status:** ${e.status}${e.replacedBy ? ` (replaced by ${e.replacedBy})` : ''}`,
+    `**Code:** ${e.code} | **Section:** ${e.section} | **Status:** ${e.status}${e.replacedBy ? ` (replaced by ${e.replacedBy})` : ''}`,
     `**Hierarchy:** ${e.grouping} › ${e.classification}${e.specialization ? ` › ${e.specialization}` : ''}`,
   ];
   if (e.definition) lines.push(e.definition);
@@ -82,41 +85,41 @@ function renderEntry(e: z.infer<typeof EntrySchema>): string {
   return lines.join('\n');
 }
 
-export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
-  description:
-    'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching active taxonomy entries, excluding codes NUCC marks inactive; mode `get` returns the full entry for an exact code, including NUCC\'s Notes; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and by NPI section (Individual/NPI-1 vs Non-Individual/NPI-2). Every entry carries its status, and an inactive code names its replacement when NUCC gives one; `get` and `browse` still return inactive codes. A resolved entry\'s specialization, or its classification when specialization is absent, maps directly to npi_search_providers.taxonomy_description.',
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+/** Construct the taxonomy definition with the configured over-limit policy. */
+export function createLookupTaxonomyTool(clampLimits: boolean) {
+  return tool('npi_lookup_taxonomy', {
+    description:
+      'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching active taxonomy entries, excluding codes NUCC marks inactive; mode `get` returns the full entry for an exact code, including NUCC\'s Notes; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and NUCC section. Individual includes Group codes; section does not determine NPI entity type, which comes from NPPES enumeration_type. Every entry carries its status, and an inactive code names its replacement when NUCC gives one; `get` and `browse` still return inactive codes. A resolved entry\'s specialization, or its classification when specialization is absent, maps directly to npi_search_providers.taxonomy_description.',
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
-  input: z.discriminatedUnion('mode', [
-    z.object({
-      mode: z.literal('resolve').describe('Resolve a plain-language specialty to taxonomy codes.'),
+    input: z.object({
+      mode: z
+        .enum(['resolve', 'get', 'browse'])
+        .describe(
+          'resolve: plain-language specialty to codes; get: exact code; browse: hierarchy.',
+        ),
       query: z
         .string()
-        .min(1)
+        .optional()
         .describe('The plain-language specialty term to resolve, e.g. "pediatric cardiologist".'),
-      limit: z
-        .number()
-        .int()
-        .min(1)
-        .max(50)
-        .default(20)
-        .describe('Maximum matching entries to return (1–50).'),
+      limit: (clampLimits ? z.number().int().min(1) : z.number().int().min(1).max(50))
+        .optional()
+        .describe(
+          'Maximum entries for resolve/browse; defaults to 20. Positive integers above 50 are clamped to 50 unless NPI_CLAMP_LIMITS is disabled.',
+        ),
       skip: z
         .number()
         .int()
         .min(0)
         .max(1000)
-        .default(0)
+        .optional()
         .describe(
           'Entries to skip before the page (0–1000). Keep the same query and limit, then raise skip by limit each call.',
         ),
-    }),
-    z.object({
-      mode: z.literal('get').describe('Fetch one exact taxonomy entry by code.'),
-      code: z.string().min(1).describe('The exact NUCC taxonomy code, e.g. "207RC0000X".'),
-    }),
-    z.object({
-      mode: z.literal('browse').describe('Browse the taxonomy hierarchy.'),
+      code: z
+        .string()
+        .optional()
+        .describe('For get only: exact NUCC taxonomy code, e.g. "207RC0000X".'),
       grouping: z
         .string()
         .optional()
@@ -126,170 +129,188 @@ export const lookupTaxonomyTool = tool('npi_lookup_taxonomy', {
       section: z
         .enum(['Individual', 'Non-Individual'])
         .optional()
-        .describe('Filter by NPI section: Individual (NPI-1) or Non-Individual (NPI-2).'),
-      limit: z
-        .number()
-        .int()
-        .min(1)
-        .max(50)
-        .default(20)
-        .describe('Maximum entries to return (1–50).'),
-      skip: z
-        .number()
-        .int()
-        .min(0)
-        .max(1000)
-        .default(0)
         .describe(
-          'Entries to skip before the page (0–1000). Keep the same filters and limit, then raise skip by limit each call.',
+          'For browse only: NUCC section, independent of NPI entity type. Individual includes Group codes.',
         ),
     }),
-  ]),
 
-  output: z.object({
-    matches: z
-      .array(EntrySchema)
-      .describe(
-        'Matching taxonomy entries. For mode "get" this is the single requested entry; for "resolve"/"browse" it is the ranked/sorted matches up to limit.',
-      ),
-  }),
+    output: z.object({
+      matches: z
+        .array(EntrySchema)
+        .describe(
+          'Matching taxonomy entries. For mode "get" this is the single requested entry; for "resolve"/"browse" it is the ranked/sorted matches up to limit.',
+        ),
+    }),
 
-  enrichment: {
-    truncated: z
-      .boolean()
-      .optional()
-      .describe('True when the list was capped at `limit` (more entries may match).'),
-    shown: z.number().optional().describe('Number of entries returned.'),
-    cap: z.number().optional().describe('The limit that was applied.'),
-    notice: z
-      .string()
-      .optional()
-      .describe(
-        'Guidance — how to page a truncated result with skip, or how to broaden when nothing matched.',
-      ),
-  },
-
-  errors: [
-    {
-      reason: 'no_match',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'A get code matched no taxonomy entry, a resolve query matched no active one (the message names any inactive codes it matched), or a resolve query was made only of generic words ("doctor", "M.D.", "specialist") that name no specialty.',
-      recovery: 'Try a broader term, or use mode browse to walk groupings then classifications.',
+    enrichment: {
+      truncated: z
+        .boolean()
+        .optional()
+        .describe('True when the list was capped at `limit` (more entries may match).'),
+      shown: z.number().optional().describe('Number of entries returned.'),
+      cap: z.number().optional().describe('The limit that was applied.'),
+      notice: z
+        .string()
+        .optional()
+        .describe(
+          'Guidance — how to page a truncated result with skip, or how to broaden when nothing matched.',
+        ),
     },
-    {
-      reason: 'missing_argument',
-      code: JsonRpcErrorCode.ValidationError,
-      when: 'The required query or code was present but blank after trimming.',
-      recovery: 'Provide a non-blank query for resolve or taxonomy code for get.',
-    },
-  ],
 
-  handler(input, ctx) {
-    const taxonomy = getTaxonomyService();
+    errors: [
+      {
+        reason: 'no_match',
+        code: JsonRpcErrorCode.NotFound,
+        when: 'A get code matched no taxonomy entry, a resolve query matched no active one (the message names any inactive codes it matched), or a resolve query was made only of generic words ("doctor", "M.D.", "specialist") that name no specialty.',
+        recovery: 'Try a broader term, or use mode browse to walk groupings then classifications.',
+      },
+      {
+        reason: 'missing_argument',
+        code: JsonRpcErrorCode.ValidationError,
+        when: 'The required query or code was missing or blank after trimming.',
+        recovery: 'Provide a non-blank query for resolve or taxonomy code for get.',
+      },
+      {
+        reason: 'wrong_mode_argument',
+        code: JsonRpcErrorCode.ValidationError,
+        when: 'An explicitly supplied field belongs to a different mode.',
+        recovery:
+          'Use query with resolve, code with get, and grouping or section with browse; limit and skip apply only to resolve or browse.',
+      },
+    ],
 
-    if (input.mode === 'get') {
-      const code = input.code.trim();
-      if (!code) {
-        throw ctx.fail('missing_argument', 'Mode "get" requires a `code`.');
+    handler(input, ctx) {
+      const wrongFields =
+        input.mode === 'get'
+          ? (['query', 'grouping', 'section', 'limit', 'skip'] as const)
+          : input.mode === 'resolve'
+            ? (['code', 'grouping', 'section'] as const)
+            : (['query', 'code'] as const);
+      const supplied = wrongFields.filter((field) => input[field] !== undefined);
+      if (supplied.length > 0) {
+        throw ctx.fail(
+          'wrong_mode_argument',
+          `Mode "${input.mode}" does not accept: ${supplied.join(', ')}.`,
+        );
       }
-      const entry = taxonomy.get(code);
-      if (!entry) {
-        throw ctx.fail('no_match', `No taxonomy entry for code "${code}".`);
-      }
-      return { matches: [{ ...toEntry(entry), ...(entry.notes ? { notes: entry.notes } : {}) }] };
-    }
+      const taxonomy = getTaxonomyService();
 
-    if (input.mode === 'resolve') {
-      const query = input.query.trim();
-      if (!query) {
-        throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.');
-      }
-      // "doctor", "M.D.", "specialist" alone name no specialty; point at browse, not a bare miss.
-      const stopWordsOnly = stopWordOnlyQuery(query);
-      if (stopWordsOnly) {
-        throw ctx.fail('no_match', `"${query}" names no specialty on its own.`, {
-          recovery: {
-            hint:
-              stopWordsOnly === 'physician'
-                ? 'Use mode browse with grouping "Allopathic & Osteopathic Physicians" to list physician specialties, or add the specialty to the query (e.g. "heart doctor").'
-                : 'Use mode browse to walk groupings then classifications, or add the specialty to the query (e.g. "nurse specialist").',
-          },
-        });
-      }
-      // Fetch one past the cap to detect truncation honestly.
-      const { matches: hits, inactiveMatches } = taxonomy.resolveWithInactive(
-        query,
-        input.limit + 1,
-        input.skip,
-      );
-      if (hits.length === 0) {
-        // A skip past the end of a real match set is an empty page, not a no-match.
-        if (input.skip > 0) {
-          ctx.enrich.notice(
-            `No more matches beyond skip=${input.skip}. Lower skip, or omit it to page from the start.`,
-          );
-          return { matches: [] };
+      if (input.mode === 'get') {
+        const code = input.code?.trim();
+        if (!code) {
+          throw ctx.fail('missing_argument', 'Mode "get" requires a `code`.');
         }
-        const inactive = describeInactiveEntries(inactiveMatches);
-        if (inactive) {
-          throw ctx.fail(
-            'no_match',
-            `No active taxonomy matched "${query}". It matched only codes NUCC marks inactive: ${inactive}.`,
-            {
-              recovery: {
-                hint: 'Resolve excludes inactive codes. Use a named replacement code with mode get, read an inactive entry with mode get, or try a broader term.',
-              },
+        const entry = taxonomy.get(code);
+        if (!entry) {
+          throw ctx.fail('no_match', `No taxonomy entry for code "${code}".`);
+        }
+        return { matches: [{ ...toEntry(entry), ...(entry.notes ? { notes: entry.notes } : {}) }] };
+      }
+
+      const requested = input.limit ?? 20;
+      const limit = Math.min(requested, 50);
+      const skip = input.skip ?? 0;
+      const clampNotice =
+        requested > limit ? `Requested limit ${requested} was clamped to ${limit}. ` : '';
+      if (requested > limit)
+        recordLimitClamp(ctx, { tool: 'npi_lookup_taxonomy', requested, applied: limit });
+
+      if (input.mode === 'resolve') {
+        const query = input.query?.trim();
+        if (!query) {
+          throw ctx.fail('missing_argument', 'Mode "resolve" requires a `query`.');
+        }
+        // "doctor", "M.D.", "specialist" alone name no specialty; point at browse, not a bare miss.
+        const stopWordsOnly = stopWordOnlyQuery(query);
+        if (stopWordsOnly) {
+          throw ctx.fail('no_match', `"${query}" names no specialty on its own.`, {
+            recovery: {
+              hint:
+                stopWordsOnly === 'physician'
+                  ? 'Use mode browse with grouping "Allopathic & Osteopathic Physicians" to list physician specialties, or add the specialty to the query (e.g. "heart doctor").'
+                  : 'Use mode browse to walk groupings then classifications, or add the specialty to the query (e.g. "nurse specialist").',
             },
-          );
+          });
         }
-        throw ctx.fail('no_match', `No taxonomy matched "${query}".`);
+        // Fetch one past the cap to detect truncation honestly.
+        const { matches: hits, inactiveMatches } = taxonomy.resolveWithInactive(
+          query,
+          limit + 1,
+          skip,
+        );
+        if (hits.length === 0) {
+          // A skip past the end of a real match set is an empty page, not a no-match.
+          if (skip > 0) {
+            ctx.enrich.notice(
+              `${clampNotice}No more matches beyond skip=${skip}. Lower skip, or omit it to page from the start.`,
+            );
+            return { matches: [] };
+          }
+          const inactive = describeInactiveEntries(inactiveMatches);
+          if (inactive) {
+            throw ctx.fail(
+              'no_match',
+              `No active taxonomy matched "${query}". It matched only codes NUCC marks inactive: ${inactive}.`,
+              {
+                recovery: {
+                  hint: 'Resolve excludes inactive codes. Use a named replacement code with mode get, read an inactive entry with mode get, or try a broader term.',
+                },
+              },
+            );
+          }
+          throw ctx.fail('no_match', `No taxonomy matched "${query}".`);
+        }
+        const matches = hits.slice(0, limit);
+        if (hits.length > limit) {
+          ctx.enrich.truncated({
+            shown: matches.length,
+            cap: limit,
+            guidance: `${clampNotice}More matches beyond this page. Page forward with skip=${skip + limit} at the same limit, or refine the query.`,
+          });
+        } else if (clampNotice) ctx.enrich.notice(clampNotice.trim());
+        return { matches: matches.map(toEntry) };
       }
-      const matches = hits.slice(0, input.limit);
-      if (hits.length > input.limit) {
+
+      // mode === 'browse'
+      const hits = taxonomy.browse({
+        ...(input.grouping ? { grouping: input.grouping } : {}),
+        ...(input.section ? { section: input.section } : {}),
+        limit: limit + 1,
+        skip,
+      });
+      const matches = hits.slice(0, limit);
+      if (matches.length === 0) {
+        ctx.enrich.notice(
+          clampNotice +
+            (skip > 0
+              ? `No more entries beyond skip=${skip}. Lower skip, or omit it to page from the start.`
+              : 'No taxonomy entries matched the browse filters. Drop the grouping/section filter, or call mode browse with no filters to see all groupings.'),
+        );
+      } else if (hits.length > limit) {
         ctx.enrich.truncated({
           shown: matches.length,
-          cap: input.limit,
-          guidance: `More matches beyond this page. Page forward with skip=${input.skip + input.limit} at the same limit, or refine the query.`,
+          cap: limit,
+          guidance: `${clampNotice}More entries beyond this page. Page forward with skip=${skip + limit} at the same limit, or filter by grouping/section.`,
         });
-      }
+      } else if (clampNotice) ctx.enrich.notice(clampNotice.trim());
       return { matches: matches.map(toEntry) };
-    }
+    },
 
-    // mode === 'browse'
-    const hits = taxonomy.browse({
-      ...(input.grouping ? { grouping: input.grouping } : {}),
-      ...(input.section ? { section: input.section } : {}),
-      limit: input.limit + 1,
-      skip: input.skip,
-    });
-    const matches = hits.slice(0, input.limit);
-    if (matches.length === 0) {
-      ctx.enrich.notice(
-        input.skip > 0
-          ? `No more entries beyond skip=${input.skip}. Lower skip, or omit it to page from the start.`
-          : 'No taxonomy entries matched the browse filters. Drop the grouping/section filter, or call mode browse with no filters to see all groupings.',
-      );
-    } else if (hits.length > input.limit) {
-      ctx.enrich.truncated({
-        shown: matches.length,
-        cap: input.limit,
-        guidance: `More entries beyond this page. Page forward with skip=${input.skip + input.limit} at the same limit, or filter by grouping/section.`,
-      });
-    }
-    return { matches: matches.map(toEntry) };
-  },
+    format: (result) => {
+      if (result.matches.length === 0) {
+        return [{ type: 'text', text: 'No taxonomy entries matched.' }];
+      }
+      if (result.matches.length === 1) {
+        return [
+          { type: 'text', text: renderEntry(result.matches[0] as z.infer<typeof EntrySchema>) },
+        ];
+      }
+      const lines = [`## Taxonomy matches (${result.matches.length})`];
+      for (const m of result.matches) lines.push(renderEntry(m));
+      return [{ type: 'text', text: lines.join('\n\n') }];
+    },
+  });
+}
 
-  format: (result) => {
-    if (result.matches.length === 0) {
-      return [{ type: 'text', text: 'No taxonomy entries matched.' }];
-    }
-    if (result.matches.length === 1) {
-      return [
-        { type: 'text', text: renderEntry(result.matches[0] as z.infer<typeof EntrySchema>) },
-      ];
-    }
-    const lines = [`## Taxonomy matches (${result.matches.length})`];
-    for (const m of result.matches) lines.push(renderEntry(m));
-    return [{ type: 'text', text: lines.join('\n\n') }];
-  },
-});
+/** Canonical default definition for tooling discovery. */
+export const lookupTaxonomyTool = createLookupTaxonomyTool(true);

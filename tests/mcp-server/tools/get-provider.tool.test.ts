@@ -9,7 +9,10 @@
 import { JsonRpcErrorCode, type McpError, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { getProviderTool } from '@/mcp-server/tools/definitions/get-provider.tool.js';
+import {
+  createGetProviderTool,
+  getProviderTool,
+} from '@/mcp-server/tools/definitions/get-provider.tool.js';
 import { initNppesService, NppesService } from '@/services/nppes/nppes-service.js';
 import type { ProviderRecord } from '@/services/nppes/types.js';
 
@@ -106,6 +109,26 @@ afterEach(() => {
 });
 
 describe('getProviderTool', () => {
+  it('characterizes confirmed misses separately from operational failures', async () => {
+    vi.spyOn(NppesService.prototype, 'getByNumber').mockImplementation(async (npi) => {
+      if (npi === '1720034424') return null;
+      throw serviceUnavailable('Registry unavailable', {
+        reason: 'upstream_probe',
+        retryable: true,
+      });
+    });
+    const result = await runToolContract(getProviderTool, { npis: ['1720034424', '1999999984'] });
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: {
+          code: JsonRpcErrorCode.ServiceUnavailable,
+          data: { reason: 'upstream_probe', retryable: true },
+        },
+      },
+    });
+    expect(textOf(result.content)).toContain('Registry unavailable');
+  });
   it('decodes a single NPI', async () => {
     stubByNpi(new Set(['1720034424']));
     const input = getProviderTool.input.parse({ npis: '1720034424' });
@@ -200,9 +223,171 @@ describe('getProviderTool', () => {
     expect(() => getProviderTool.input.parse({ npis: ['1720034424', 'abc'] })).toThrow();
   });
 
-  it('caps the batch at 10', () => {
-    const eleven = Array.from({ length: 11 }, (_, i) => String(1000000000 + i));
-    expect(() => getProviderTool.input.parse({ npis: eleven })).toThrow();
+  it('deduplicates eleven raw copies before limiting lookups', async () => {
+    const fetchSpy = stubRaw({ '1720034424': recordFor('1720034424') });
+    const result = await runToolContract(getProviderTool, { npis: Array(11).fill('1720034424') });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ found: [{ npi: '1720034424' }] });
+    expect(result.structuredContent).not.toHaveProperty('unprocessed');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('partitions invalid NPIs before limiting ten distinct valid lookups', async () => {
+    const fetchSpy = stubRaw(Object.fromEntries(TEN_VALID_NPIS.map((n) => [n, recordFor(n)])));
+    const result = await runToolContract(getProviderTool, {
+      npis: ['1720034425', ...TEN_VALID_NPIS, '1548603301', '1234567893', '1720034423'],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      found: expect.any(Array),
+      invalid: [{ npi: '1720034425' }, { npi: '1720034423' }],
+      unprocessed: ['1548603301', '1234567893'],
+    });
+    expect(requestedNpis(fetchSpy)).toEqual(TEN_VALID_NPIS);
+    const text = textOf(result.content);
+    for (const npi of ['1548603301', '1234567893', '1720034425', '1720034423'])
+      expect(text).toContain(npi);
+    expect(text).toContain('Unprocessed');
+  });
+
+  it('keeps invalid and unprocessed identifiers on both none_found error surfaces', async () => {
+    const fetchSpy = stubRaw(Object.fromEntries(TEN_VALID_NPIS.map((n) => [n, null])));
+    const result = await runToolContract(getProviderTool, {
+      npis: [...TEN_VALID_NPIS, '1548603301', '1720034425'],
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: {
+          code: JsonRpcErrorCode.NotFound,
+          data: {
+            reason: 'none_found',
+            invalid: [{ npi: '1720034425' }],
+            unprocessed: ['1548603301'],
+            recovery: { hint: expect.any(String) },
+          },
+        },
+      },
+    });
+    expect(textOf(result.content)).toContain('1548603301');
+    expect(textOf(result.content)).toContain('1720034425');
+    expect(requestedNpis(fetchSpy)).toEqual(TEN_VALID_NPIS);
+  });
+
+  it('preserves upstream classification, recovery and cause with invalids and overflow', async () => {
+    const failure = serviceUnavailable('Registry unavailable', {
+      reason: 'upstream_probe',
+      retryable: true,
+      recovery: { hint: 'Retry the registry later.' },
+    });
+    const lookup = vi
+      .spyOn(NppesService.prototype, 'getByNumber')
+      .mockImplementation(async (npi) => {
+        if (npi === TEN_VALID_NPIS[0]) throw failure;
+        return null;
+      });
+    const input = { npis: [...TEN_VALID_NPIS, '1548603301', '1720034425'] };
+    const caught = await Promise.resolve(
+      getProviderTool.handler(getProviderTool.input.parse(input), ctx()),
+    ).catch((error: unknown) => error);
+    expect(caught).toMatchObject({
+      code: failure.code,
+      cause: failure,
+      data: {
+        reason: 'upstream_probe',
+        retryable: true,
+        recovery: failure.data?.recovery,
+        invalid: [{ npi: '1720034425' }],
+        unprocessed: ['1548603301'],
+      },
+    });
+    const result = await runToolContract(getProviderTool, input);
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: {
+          code: failure.code,
+          data: { reason: 'upstream_probe', retryable: true, recovery: failure.data?.recovery },
+        },
+      },
+    });
+    for (const value of [
+      'Registry unavailable',
+      '1720034425',
+      '1548603301',
+      'Retry the registry later.',
+    ])
+      expect(textOf(result.content)).toContain(value);
+    expect(lookup).toHaveBeenCalledTimes(20);
+  });
+
+  it('retains every partial-success partition alongside the unprocessed remainder', async () => {
+    vi.spyOn(NppesService.prototype, 'getByNumber').mockImplementation(async (npi) => {
+      if (npi === TEN_VALID_NPIS[0]) throw serviceUnavailable('Unavailable');
+      if (npi === TEN_VALID_NPIS[1]) return null;
+      return {
+        npi,
+        type: 'individual',
+        status: 'active',
+        name: 'TEST',
+        taxonomies: [],
+        addresses: [],
+        practiceLocations: [],
+        identifiers: [],
+        otherNames: [],
+        endpoints: [],
+      };
+    });
+    const result = await runToolContract(getProviderTool, {
+      npis: [...TEN_VALID_NPIS, '1548603301', '1720034425'],
+    });
+    expect(result.structuredContent).toMatchObject({
+      found: expect.any(Array),
+      notFound: [{ npi: TEN_VALID_NPIS[1] }],
+      errored: [{ npi: TEN_VALID_NPIS[0] }],
+      invalid: [{ npi: '1720034425' }],
+      unprocessed: ['1548603301'],
+    });
+    const text = textOf(result.content);
+    for (const value of [...TEN_VALID_NPIS, '1548603301', '1720034425', 'Attempted 10'])
+      expect(text).toContain(value);
+  });
+
+  it('enforces raw-entry boundaries and restores the ten-entry opt-out schema', () => {
+    expect(getProviderTool.input.safeParse({ npis: Array(100).fill('1720034424') }).success).toBe(
+      true,
+    );
+    for (const npis of [[], Array(101).fill('1720034424'), ['bad']])
+      expect(getProviderTool.input.safeParse({ npis }).success).toBe(false);
+    const strict = createGetProviderTool(false);
+    expect(strict.input.safeParse({ npis: Array(10).fill('1720034424') }).success).toBe(true);
+    expect(strict.input.safeParse({ npis: Array(11).fill('1720034424') }).success).toBe(false);
+  });
+
+  it('logs only actual valid overflow using distinct-valid and attempted counts', async () => {
+    stubRaw(Object.fromEntries(TEN_VALID_NPIS.map((npi) => [npi, recordFor(npi)])));
+    const overflow = ctx();
+    const overflowLog = vi.spyOn(overflow.log, 'notice');
+    await getProviderTool.handler(
+      getProviderTool.input.parse({
+        npis: ['1720034425', ...TEN_VALID_NPIS, '1548603301', '1548603301'],
+      }),
+      overflow,
+    );
+    expect(overflowLog).toHaveBeenCalledExactlyOnceWith('Tool limit clamped.', {
+      tool: 'npi_get_provider',
+      requested: 11,
+      applied: 10,
+    });
+    for (const npis of [
+      Array(11).fill(TEN_VALID_NPIS[0]),
+      [...TEN_VALID_NPIS, '1720034425', '1720034423'],
+    ]) {
+      const context = ctx();
+      const notice = vi.spyOn(context.log, 'notice');
+      await getProviderTool.handler(getProviderTool.input.parse({ npis }), context);
+      expect(notice).not.toHaveBeenCalled();
+    }
   });
 
   it('format: renders the full record, new fields, and not-found/errored sections', () => {
@@ -542,6 +727,10 @@ describe('getProviderTool', () => {
       },
     });
     expect(error.message).toContain('1720034425');
+    const distinct = [...new Set(Array.isArray(npis) ? npis : [npis])];
+    expect(error).toMatchObject({ data: { invalid: distinct.map((npi) => ({ npi })) } });
+    for (const npi of distinct) expect(textOf(result.content)).toContain(npi);
+    expect(error.data).not.toHaveProperty('unprocessed');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

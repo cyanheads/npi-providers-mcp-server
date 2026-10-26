@@ -9,6 +9,7 @@ import { z } from '@cyanheads/mcp-ts-core';
 import { parseEnvConfig } from '@cyanheads/mcp-ts-core/config';
 
 const ServerConfigSchema = z.object({
+  clampLimits: z.stringbool().default(true),
   apiBaseUrl: z
     .string()
     .url()
@@ -29,6 +30,7 @@ let _config: ServerConfig | undefined;
 
 export function getServerConfig(): ServerConfig {
   _config ??= parseEnvConfig(ServerConfigSchema, {
+    clampLimits: 'NPI_CLAMP_LIMITS',
     apiBaseUrl: 'NPPES_API_BASE_URL',
     timeoutMs: 'NPPES_TIMEOUT_MS',
   });
