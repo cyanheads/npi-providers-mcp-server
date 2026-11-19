@@ -7,13 +7,14 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { MAX_SKIP, nextPage, postalContinuation } from '@/mcp-server/search-window.js';
+import { MAX_LIMIT, MAX_SKIP, nextPage, postalContinuation } from '@/mcp-server/search-window.js';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
 import type { NppesSearchParams, ProviderLocation } from '@/services/nppes/types.js';
 import {
   describeInactiveEntries,
   getTaxonomyService,
   stopWordOnlyQuery,
+  taxonomyDescriptionOf,
 } from '@/services/taxonomy/taxonomy-service.js';
 import { recordLimitClamp } from '@/utils/limit-clamp.js';
 
@@ -26,14 +27,36 @@ function splitName(nameSearch: string): { firstName?: string; lastName?: string 
 }
 
 /**
- * Match a normalized row's postal code against the requested one. A trailing-`*`
- * request is a prefix the row's ZIP must start with — as upstream, so a row recorded
- * with only a 5-digit ZIP never matches a ZIP+4 prefix. An exact request tolerates the
- * 5-digit vs 9-digit ZIP+4 split: the shorter value must be a prefix of the longer.
+ * The postal_code to search, filter, and continue by: trimmed, blank as omitted, and
+ * a hyphenated ZIP+4 (`98105-3901`) as its 9 digits — the registry rejects the hyphen.
+ */
+function normalizePostalCode(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return;
+  return /^\d{5}-\d{4}$/.test(trimmed) ? trimmed.replace('-', '') : trimmed;
+}
+
+/**
+ * A digit-only postal_code the registry matches exactly: neither a 5-digit ZIP (which
+ * it extends to its ZIP+4 codes) nor a 9-digit ZIP+4. It finds a non-US postcode
+ * recorded with exactly those digits, never the US ZIPs that start with them.
+ */
+const EXACT_PARTIAL_ZIP = /^(?:\d{2,4}|\d{6,8})$/;
+
+/** A postal_code with letters, which the registry matches for only some addresses recorded with it. */
+const LETTERED_POSTAL_CODE = /[A-Za-z]/;
+
+/**
+ * Match a normalized row's postal code against the requested one, case-insensitively
+ * (the registry stores some lettered codes in lowercase and returns them for an
+ * uppercase request). A trailing-`*` request is a prefix the row's ZIP must start
+ * with — as upstream, so a row recorded with only a 5-digit ZIP never matches a ZIP+4
+ * prefix. An exact request tolerates the 5-digit vs 9-digit ZIP+4 split: the shorter
+ * value must be a prefix of the longer.
  */
 function postalCodeMatches(rowPostal: string | undefined, requested: string): boolean {
-  const row = rowPostal?.trim() ?? '';
-  const req = requested.trim();
+  const row = rowPostal?.trim().toUpperCase() ?? '';
+  const req = requested.trim().toUpperCase();
   if (!row || !req) return false;
   if (req.endsWith('*')) return row.startsWith(req.slice(0, -1));
   return row.length <= req.length ? req.startsWith(row) : row.startsWith(req);
@@ -48,10 +71,9 @@ function cityMatches(rowCity: string | undefined, requested: string): boolean {
 }
 
 /**
- * Whether one location satisfies every requested field on its own: state and city
- * case-insensitively (rows are upstream-uppercase), postal code by ZIP/ZIP+4 prefix,
- * and a trailing `*` on city or postal code as a prefix. An empty request matches
- * every location.
+ * Whether one location satisfies every requested field on its own, case-insensitively:
+ * state and city by equality, postal code by ZIP/ZIP+4 prefix, and a trailing `*` on
+ * city or postal code as a prefix. An empty request matches every location.
  */
 function locationMatches(location: ProviderLocation, requested: ProviderLocation): boolean {
   if (requested.state && location.state?.toUpperCase() !== requested.state.toUpperCase()) {
@@ -76,6 +98,32 @@ function renderLocation(location: {
   return [cityState, location.postalCode].filter(Boolean).join(' ');
 }
 
+/** Render a taxonomy as `Description (code)`, naming a description filled from NUCC. */
+function renderTaxonomy(taxonomy: {
+  code: string;
+  description?: string | undefined;
+  descriptionSource?: 'nucc' | undefined;
+}): string {
+  const source = taxonomy.descriptionSource === 'nucc' ? '; description from NUCC' : '';
+  return `${taxonomy.description ?? 'Unknown'} (${taxonomy.code}${source})`;
+}
+
+const TaxonomyReferenceSchema = z.object({
+  code: z.string().describe('NUCC taxonomy code.'),
+  description: z
+    .string()
+    .optional()
+    .describe(
+      'Description as the registry serves it ("Classification" or "Classification, Specialization"). When the registry serves none, the bundled NUCC text in the same form, marked by descriptionSource. Absent when neither has one.',
+    ),
+  descriptionSource: z
+    .enum(['nucc'])
+    .optional()
+    .describe(
+      '"nucc" when the registry served no description for this code and description comes from the bundled NUCC code set. Absent when the registry supplied it.',
+    ),
+});
+
 const ProviderRowSchema = z
   .object({
     npi: z
@@ -86,15 +134,22 @@ const ProviderRowSchema = z
       .describe('Provider enumeration type (NPI-1 vs NPI-2).'),
     name: z.string().describe('Assembled "First Last" (individual) or organization name.'),
     credential: z.string().optional().describe('Credential (e.g. "MD", "DO", "RN") when present.'),
-    primaryTaxonomy: z
+    authorizedOfficial: z
       .object({
-        code: z.string().describe('Primary taxonomy code.'),
-        description: z.string().optional().describe('Primary taxonomy description.'),
+        name: z
+          .string()
+          .describe(
+            'The official\'s name as "First Middle Last", leaving out parts the registry does not record. Prefix, suffix, credential, and telephone are on the npi_get_provider record.',
+          ),
+        title: z.string().optional().describe("The official's title or position, when recorded."),
       })
       .optional()
       .describe(
-        "The provider's primary taxonomy (the entry flagged primary, else the first listed).",
+        'The organization\'s authorized official, whose name a name_role "authorized_official" search matched. Present only on the rows of such a search, when the registry records a first or last name for the official.',
       ),
+    primaryTaxonomy: TaxonomyReferenceSchema.optional().describe(
+      "The provider's primary taxonomy (the entry flagged primary, else the first listed).",
+    ),
     city: z.string().optional().describe('Primary practice-location city when present.'),
     state: z.string().optional().describe('Primary practice-location state when present.'),
     postalCode: z
@@ -126,8 +181,11 @@ const ProviderRowSchema = z
       })
       .optional()
       .describe(
-        'The other (former, professional, DBA, or alternate) name this row matched the name search through. Present only when the current name fails a requested last_name, organization_name, or wildcard first_name and this other name satisfies it (case-insensitive, ignoring punctuation and spaces, trailing "*" as a prefix). An exact first_name alone never marks a row: the registry also matches first-name variants (Bob for Robert).',
+        'The other (former, professional, DBA, or alternate) name this row matched the name search through. Present only when the current name fails a requested last_name, organization_name, or wildcard first_name and this other name satisfies it (case-insensitive, ignoring punctuation and spaces, trailing "*" as a prefix). An exact first_name alone never marks a row: the registry also matches first-name variants (Bob for Robert). Under name_role "authorized_official" only organization_name can mark a row, since the official\'s name is matched against the official alone.',
       ),
+    matchedTaxonomy: TaxonomyReferenceSchema.optional().describe(
+      "The taxonomy this row matched the specialty filter through: the first of its taxonomies whose classification or specialization starts with appliedTaxonomyDescription (case-insensitive, in the registry's wording), as the registry matches. Present only when primaryTaxonomy does not match and another taxonomy does. It names the taxonomy whose text matched, which need not be the code the specialty resolved to.",
+    ),
     status: z
       .enum(['active', 'deactivated'])
       .describe('Registry status — never treat a deactivated NPI as current.'),
@@ -138,7 +196,7 @@ const ProviderRowSchema = z
 export function createSearchProvidersTool(clampLimits: boolean) {
   return tool('npi_search_providers', {
     description:
-      'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s specialization or classification becomes taxonomy_description, and all resolved candidates are returned in metadata. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. At least one search criterion is required, and the registry rejects state-only searches. When city/state/postal_code are given, only practice addresses are searched, never mailing addresses: a provider is returned only when its primary practice location or one of its other practice locations matches all of them. A provider kept on another practice location names it in matchedLocation. Name searches also match former and other names, sorted by current name; such a row names the matching name in matchedOtherName. The registry never reports a true match total, and one search reaches only its first 1200 matches: a full page names the next in nextPage, and the terminal window (skip 1000, limit 200) returns continuationPostalCodes, postal_code prefixes that continue the search.',
+      'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s search text becomes taxonomy_description, and all resolved candidates are returned in metadata. taxonomy_description also takes a NUCC code, such as one npi_get_provider returns, and searches with that code\'s text. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. With name_role "authorized_official", first_name, last_name, and name_search match each organization\'s authorized official instead of the provider, the search covers organizations only, and each row names the official in authorizedOfficial. At least one search criterion is required, and the registry rejects state-only searches. When city/state/postal_code are given, only practice addresses are searched, never mailing addresses: a provider is returned only when its primary practice location or one of its other practice locations matches all of them. A provider kept on another practice location names it in matchedLocation. A specialty filter matches any of a provider\'s taxonomies, as a case-insensitive prefix of the taxonomy\'s classification or specialization; a row matched through a taxonomy other than its primary names it in matchedTaxonomy. Name searches also match former and other names, sorted by current name; such a row names the matching name in matchedOtherName. The registry never reports a true match total, and one search reaches only its first 1200 matches: a full page names the next in nextPage, and the terminal window (skip 1000, limit 200) returns continuationPostalCodes, postal_code prefixes that continue the search.',
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
     errors: [
@@ -154,29 +212,45 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         code: JsonRpcErrorCode.ValidationError,
         when: 'Both specialty and taxonomy_description were supplied.',
         recovery:
-          'Pass either specialty (plain-language, resolved) or taxonomy_description (exact), not both.',
+          "Pass either specialty (plain-language, resolved) or taxonomy_description (a NUCC code or the registry's text), not both.",
       },
       {
         reason: 'mixed_provider_criteria',
         code: JsonRpcErrorCode.ValidationError,
-        when: 'Individual criteria (first_name, last_name, name_search) were combined with organization criteria (organization_name), directly or through provider_type.',
+        when: 'Individual criteria (first_name, last_name, name_search) were combined with organization criteria (organization_name), directly or through provider_type. Under name_role "authorized_official" the name fields and name_role are organization criteria.',
         recovery:
-          'Keep one side: first_name, last_name, and name_search search individuals; organization_name searches organizations. Drop the other side, or set provider_type to match.',
+          'Keep one side: first_name, last_name, and name_search search individuals (organizations, under name_role "authorized_official"); organization_name searches organizations. Drop the other side, or set provider_type to match.',
+      },
+      {
+        reason: 'official_name_required',
+        code: JsonRpcErrorCode.ValidationError,
+        when: 'name_role "authorized_official" was given without a first_name, last_name, or name_search to match the official by.',
+        recovery:
+          "Add the official's first_name or last_name (or name_search), or drop name_role to search by organization_name, specialty, or location alone.",
       },
       {
         reason: 'unresolved_specialty',
         code: JsonRpcErrorCode.NotFound,
-        when: 'The specialty term matched no active NUCC taxonomy (the message names any inactive codes it matched), or was made only of generic words ("doctor", "M.D.", "specialist") that name no specialty.',
+        when: 'The specialty term matched no active NUCC taxonomy (the message names any inactive codes it matched), or was made only of generic words ("doctor", "M.D.", "specialist") that name no specialty; or taxonomy_description was a NUCC code the bundled set lacks or NUCC marks inactive (the message names an inactive code\'s replacement). No search is sent.',
         recovery:
           'Call npi_lookup_taxonomy mode resolve to find a valid specialty, or pass taxonomy_description directly.',
       },
       {
         reason: 'invalid_search_field',
         code: JsonRpcErrorCode.ValidationError,
-        when: 'The registry returned a field error (e.g. wildcard under 2 characters, bad provider type).',
+        when: 'The registry returned a field error (e.g. wildcard under 2 characters, a postal_code with a space or the wrong number of digits, bad provider type). A postal_code error carries its own recovery naming the accepted forms.',
         recovery:
           'Read the field error; wildcards need at least 2 leading characters and state needs a companion filter.',
         // Raised by the NPPES service's Errors[]-on-200 mapping, not by this handler.
+        thrownBy: 'service',
+      },
+      {
+        reason: 'unmatched_taxonomy_description',
+        code: JsonRpcErrorCode.ValidationError,
+        when: 'The registry found no taxonomy for the description sent (its error 14): taxonomy_description, or the text a specialty resolved to, starts no classification or specialization in the registry\'s wording. The combined "Classification, Specialization" text never matches. When the text sent is the search text of a bundled NUCC code, the error carries its own recovery naming the broader classification to search, or a related one to browse for.',
+        recovery:
+          'Find the taxonomy with npi_lookup_taxonomy mode resolve and pass its code as taxonomy_description, or describe the specialty in plain language as specialty.',
+        // Raised by the NPPES service's Errors[]-on-200 mapping (error 14), not by this handler.
         thrownBy: 'service',
       },
     ],
@@ -186,49 +260,55 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         .string()
         .optional()
         .describe(
-          "One person's name. The first token becomes first_name and the last token becomes last_name; use first_name/last_name when middle names or multi-part surnames matter.",
+          "One person's name: the provider's, or the authorized official's under name_role \"authorized_official\". The first token becomes first_name and the last token becomes last_name; use first_name/last_name when middle names or multi-part surnames matter.",
         ),
       first_name: z
         .string()
         .optional()
         .describe(
-          'Individual first name. Trailing wildcard "*" allowed with at least 2 leading characters.',
+          'Individual first name, or the authorized official\'s under name_role "authorized_official". Trailing wildcard "*" allowed with at least 2 leading characters.',
         ),
       last_name: z
         .string()
         .optional()
         .describe(
-          'Individual last name. Trailing wildcard "*" allowed with at least 2 leading characters.',
+          'Individual last name, or the authorized official\'s under name_role "authorized_official". Trailing wildcard "*" allowed with at least 2 leading characters.',
+        ),
+      name_role: z
+        .enum(['provider', 'authorized_official'])
+        .optional()
+        .describe(
+          "Whose name first_name, last_name and name_search match: the provider's own (default) or an organization's authorized official. authorized_official searches organizations only and needs a first or last name.",
         ),
       use_first_name_alias: z
         .boolean()
         .optional()
         .describe(
-          'Include first-name variants (default true upstream). False requests exact first-name matching. Applies to the resolved first_name, including name_search, only without a wildcard; other-name matching remains enabled.',
+          "Include first-name variants (default true upstream). False requests exact first-name matching. Applies to the resolved first_name, including name_search and an authorized official's first name, only without a wildcard; other-name matching remains enabled.",
         ),
       organization_name: z
         .string()
         .optional()
         .describe(
-          'Organization name (implies provider_type organization; cannot be combined with first_name, last_name, or name_search). Trailing wildcard "*" allowed with at least 2 leading characters.',
+          'Organization name (implies provider_type organization; combines with first_name, last_name, or name_search only under name_role "authorized_official"). Trailing wildcard "*" allowed with at least 2 leading characters.',
         ),
       provider_type: z
         .enum(['individual', 'organization'])
         .optional()
         .describe(
-          'Restrict to individuals (NPI-1) or organizations (NPI-2). Omit to search both; when set, it must match the name fields ("individual" for first_name/last_name/name_search, "organization" for organization_name).',
+          'Restrict to individuals (NPI-1) or organizations (NPI-2). Omit to search both; when set, it must match the name fields ("individual" for first_name/last_name/name_search, "organization" for organization_name or name_role "authorized_official").',
         ),
       specialty: z
         .string()
         .optional()
         .describe(
-          'Plain-language specialty (e.g. "pediatric cardiologist"), resolved through the bundled NUCC taxonomy to exact descriptions before searching. Codes NUCC marks inactive are never resolved. The matched taxonomy is echoed in the result. Mutually exclusive with taxonomy_description.',
+          'Plain-language specialty (e.g. "pediatric cardiologist"), resolved through the bundled NUCC taxonomy to exact descriptions before searching. Codes NUCC marks inactive are never resolved. The resolved taxonomy is echoed in the result. Mutually exclusive with taxonomy_description.',
         ),
       taxonomy_description: z
         .string()
         .optional()
         .describe(
-          'Exact NUCC taxonomy description for direct passthrough — use when the taxonomy description is already known. Mutually exclusive with specialty.',
+          'A NUCC taxonomy code in any case (e.g. "207RC0000X", as npi_get_provider returns it) or taxonomy text. A code searches with that code\'s text, named in resolvedTaxonomies, and so does a NUCC display name such as "Cardiovascular Disease Physician" unless it is itself the start of a NUCC classification or specialization (e.g. "Critical Access Hospital"); a code the bundled NUCC set lacks or marks inactive is rejected before searching. Other text goes to the registry as written. The registry matches the text sent as a case-insensitive prefix of each taxonomy\'s classification or specialization, so a classification code (e.g. "207R00000X", Internal Medicine) also reaches its specializations. Mutually exclusive with specialty.',
         ),
       city: z
         .string()
@@ -255,12 +335,12 @@ export function createSearchProvidersTool(clampLimits: boolean) {
       postal_code: z
         .string()
         .regex(
-          /^[^*]*$|^\d{2,9}\*$/,
+          /^[^*]*$|^\s*\d{2,9}\*\s*$/,
           'A postal_code wildcard is 2–9 digits followed by one trailing "*" (e.g. "98*", "981*").',
         )
         .optional()
         .describe(
-          'Practice-location ZIP code: 5 digits (also matching the ZIP+4 codes that extend it), 9 digits, or a 2–9 digit prefix with one trailing "*" (e.g. "98*", "981*"). A ZIP+4 prefix (6+ digits) never matches a practice address recorded with only a 5-digit ZIP.',
+          'Practice-location postal code: a 5-digit ZIP (also matching the ZIP+4 codes that extend it), a 9-digit ZIP+4 (ddddd-dddd accepted), or a 2–9 digit prefix with one trailing "*" (e.g. "98*", "981*"). Any other 2–4 or 6–8 digit string is matched exactly, as a non-US postcode is: "981" finds only an address recorded as exactly 981, and "981*" is the ZIP prefix. A ZIP+4 prefix (6+ digits) never matches a practice address recorded with only a 5-digit ZIP. A lettered postal code (Canadian, UK) matches only some providers recorded with it; search those by city. A blank value is treated as omitted.',
         ),
       limit: (clampLimits ? z.number().int().min(1) : z.number().int().min(1).max(200))
         .default(10)
@@ -298,18 +378,20 @@ export function createSearchProvidersTool(clampLimits: boolean) {
             description: z
               .string()
               .describe(
-                'Search-compatible NUCC specialization or classification for this candidate.',
+                "The text that searches the registry for this code: its specialization, else its classification, in the registry's wording where that differs from NUCC's.",
               ),
           }),
         )
         .optional()
         .describe(
-          'Taxonomy candidates ranked for the specialty term. The first candidate supplies appliedTaxonomyDescription; a different candidate can be selected through taxonomy_description.',
+          "The taxonomies the search resolved: candidates ranked for a specialty term, or the one code a taxonomy_description code or display name decoded to. The first supplies appliedTaxonomyDescription; pass another candidate's code as taxonomy_description to search it instead. Absent when taxonomy_description was sent as written.",
         ),
       appliedTaxonomyDescription: z
         .string()
         .optional()
-        .describe('The exact NUCC specialization or classification used as the specialty filter.'),
+        .describe(
+          "The taxonomy_description text sent to the registry as the specialty filter: the first resolvedTaxonomies description, else the caller's taxonomy_description, trimmed.",
+        ),
       truncated: z
         .boolean()
         .optional()
@@ -337,7 +419,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         .string()
         .optional()
         .describe(
-          'Guidance — the page-size-not-total caveat, the next page or terminal-window continuation procedure, other-name and location-filter counts, or how to broaden an empty result.',
+          'Guidance — the page-size-not-total caveat, the next page or terminal-window continuation procedure, other-name, matched-taxonomy, and location-filter counts, a lettered postal_code\'s partial matching, or how to broaden an empty result (for an exactly matched partial ZIP, its trailing-"*" form).',
         ),
     },
 
@@ -368,15 +450,23 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         throw ctx.fail('conflicting_specialty');
       }
 
-      // The registry rejects any mix of individual (NPI-1) and organization (NPI-2)
-      // criteria with its error 13; name the conflicting fields before a request.
+      /**
+       * The registry rejects any mix of individual (NPI-1) and organization (NPI-2)
+       * criteria with its error 13; name the conflicting fields before a request. Under
+       * name_role "authorized_official" the name fields match organizations' officials,
+       * so they leave the individual side and name_role stands for them on the other.
+       */
+      const officialSearch = input.name_role === 'authorized_official';
       const individualSide = [
-        ...(['first_name', 'last_name', 'name_search'] as const).filter((f) => input[f]?.trim()),
+        ...(officialSearch
+          ? []
+          : (['first_name', 'last_name', 'name_search'] as const).filter((f) => input[f]?.trim())),
         ...(input.provider_type === 'individual' ? ['provider_type "individual"'] : []),
       ];
       const organizationSide = [
         ...(input.organization_name?.trim() ? ['organization_name'] : []),
         ...(input.provider_type === 'organization' ? ['provider_type "organization"'] : []),
+        ...(officialSearch ? ['name_role "authorized_official"'] : []),
       ];
       if (individualSide.length > 0 && organizationSide.length > 0) {
         const individual = individualSide.join(' and ');
@@ -392,7 +482,21 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         );
       }
 
-      // Resolve specialty → taxonomy_description, or take the raw escape hatch.
+      // Derive name parts (explicit fields win over the convenience shortcut).
+      const fromShortcut = input.name_search?.trim() ? splitName(input.name_search) : {};
+      const firstName = input.first_name?.trim() || fromShortcut.firstName;
+      const lastName = input.last_name?.trim() || fromShortcut.lastName;
+      const organizationName = input.organization_name?.trim();
+
+      // The registry refuses name_purpose=AO without a first or last name (its error 17).
+      if (officialSearch && !firstName && !lastName) {
+        throw ctx.fail(
+          'official_name_required',
+          'name_role "authorized_official" matches first_name, last_name, or name_search against each organization\'s authorized official, and none was given.',
+        );
+      }
+
+      // Resolve specialty → taxonomy_description, or decode / pass through taxonomy_description.
       let taxonomyDescription: string | undefined;
       let resolvedTaxonomies: { code: string; description: string }[] | undefined;
       if (input.specialty?.trim()) {
@@ -423,36 +527,71 @@ export function createSearchProvidersTool(clampLimits: boolean) {
               : `Specialty "${input.specialty}" matched no NUCC taxonomy.`,
           );
         }
-        // The NPPES API matches `taxonomy_description` against the taxonomy's
-        // description (specialization, else classification) — NOT the NUCC display
-        // name (which carries a "... Physician" suffix the API rejects). Resolve to
-        // the API-accepted description and send the top match; echo all candidates
-        // with their codes so alternate candidates remain selectable through
-        // taxonomy_description.
+        /**
+         * The NPPES API matches `taxonomy_description` as a case-insensitive prefix of a
+         * taxonomy's classification or specialization, in its own wording — NOT the combined
+         * description or the NUCC display name (which carries a "... Physician" suffix the
+         * API rejects). Send the top match's search text (`taxonomyDescriptionOf`); echo all
+         * candidates with their codes so alternate candidates remain selectable through
+         * taxonomy_description.
+         */
         resolvedTaxonomies = hits.map((h) => ({
           code: h.code,
-          description: h.specialization ?? h.classification,
+          description: taxonomyDescriptionOf(h),
         }));
         taxonomyDescription = resolvedTaxonomies[0]?.description;
       } else if (input.taxonomy_description?.trim()) {
-        taxonomyDescription = input.taxonomy_description.trim();
+        /**
+         * A NUCC code, or a display name that starts no bundled classification or
+         * specialization, searches with the code's text exactly as a resolved specialty
+         * does. An unknown or inactive code never becomes a search. Anything else goes to
+         * the registry as written.
+         */
+        const decoded = getTaxonomyService().decodeTaxonomyDescription(input.taxonomy_description);
+        if (decoded.kind === 'unknown_code') {
+          throw ctx.fail(
+            'unresolved_specialty',
+            `taxonomy_description ${decoded.code} matches no code in the bundled NUCC taxonomy.`,
+            {
+              recovery: {
+                hint: 'Check the code for a typo, or find a valid one with npi_lookup_taxonomy mode resolve or browse.',
+              },
+            },
+          );
+        }
+        if (decoded.kind === 'inactive_code') {
+          const { replacedBy } = decoded.entry;
+          throw ctx.fail(
+            'unresolved_specialty',
+            `taxonomy_description names a code NUCC marks inactive: ${describeInactiveEntries([decoded.entry])}.`,
+            {
+              recovery: {
+                hint: replacedBy
+                  ? `Pass the replacement code ${replacedBy} as taxonomy_description, or find another active code with npi_lookup_taxonomy mode resolve or browse.`
+                  : 'Find an active code with npi_lookup_taxonomy mode resolve or browse.',
+              },
+            },
+          );
+        }
+        if (decoded.kind === 'decoded') {
+          taxonomyDescription = decoded.taxonomyDescription;
+          resolvedTaxonomies = [
+            { code: decoded.entry.code, description: decoded.taxonomyDescription },
+          ];
+        } else {
+          taxonomyDescription = decoded.text;
+        }
       }
 
-      // Derive name parts (explicit fields win over the convenience shortcut).
-      const fromShortcut = input.name_search?.trim() ? splitName(input.name_search) : {};
-      const firstName = input.first_name?.trim() || fromShortcut.firstName;
-      const lastName = input.last_name?.trim() || fromShortcut.lastName;
-      const organizationName = input.organization_name?.trim();
-
-      // Provider type: explicit input, or implied by organization_name.
+      // Provider type: explicit input, or implied by organization_name or an official search.
       let enumerationType: 'NPI-1' | 'NPI-2' | undefined;
       if (input.provider_type === 'individual') enumerationType = 'NPI-1';
       else if (input.provider_type === 'organization') enumerationType = 'NPI-2';
-      else if (organizationName) enumerationType = 'NPI-2';
+      else if (organizationName || officialSearch) enumerationType = 'NPI-2';
 
       const city = input.city?.trim();
       const state = input.state?.trim();
-      const postalCode = input.postal_code?.trim();
+      const postalCode = normalizePostalCode(input.postal_code);
 
       // Mirror the API's "no valid search criteria" rule, and its state-only rejection,
       // before spending an upstream call.
@@ -463,8 +602,9 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         throw ctx.fail('no_search_criteria');
       }
 
-      const limit = Math.min(input.limit, 200);
-      if (limit !== input.limit)
+      const limit = Math.min(input.limit, MAX_LIMIT);
+      const clamped = limit !== input.limit;
+      if (clamped)
         recordLimitClamp(ctx, {
           tool: 'npi_search_providers',
           requested: input.limit,
@@ -479,6 +619,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
           ? { useFirstNameAlias: input.use_first_name_alias }
           : {}),
         ...(lastName ? { lastName } : {}),
+        ...(officialSearch ? { namePurpose: 'AO' as const } : {}),
         ...(organizationName ? { organizationName } : {}),
         ...(taxonomyDescription ? { taxonomyDescription } : {}),
         ...(city ? { city } : {}),
@@ -528,7 +669,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
 
       // ctx.enrich.notice is last-wins, so assemble one notice from fragments.
       const noticeParts: string[] = [];
-      if (limit !== input.limit)
+      if (clamped)
         noticeParts.push(
           `Requested limit ${input.limit} was clamped to ${limit}, the registry's maximum page size.`,
         );
@@ -538,12 +679,24 @@ export function createSearchProvidersTool(clampLimits: boolean) {
             ? 'use_first_name_alias is inapplicable because the resolved first_name contains a wildcard.'
             : 'use_first_name_alias is inapplicable because no first_name was resolved.',
         );
+      const letteredPostalCode = Boolean(postalCode && LETTERED_POSTAL_CODE.test(postalCode));
       if (rawCount === 0) {
-        noticeParts.push(
-          input.skip > 0
-            ? `No providers at skip ${input.skip}: this search's matches end before that offset — page back with a lower skip.`
-            : 'No providers matched. The registry uses substring matching on specialty and rejects state-only searches — try broadening, verifying the specialty resolution, or pairing state with a name/city.',
-        );
+        if (input.skip > 0) {
+          noticeParts.push(
+            `No providers at skip ${input.skip}: this search's matches end before that offset — page back with a lower skip.`,
+          );
+        } else if (letteredPostalCode) {
+          // The lettered-code notice below says why.
+          noticeParts.push('No providers matched.');
+        } else if (postalCode && EXACT_PARTIAL_ZIP.test(postalCode)) {
+          noticeParts.push(
+            `No providers matched. postal_code ${postalCode} was matched exactly, and no practice address is recorded with exactly that code — the registry extends only a 5-digit ZIP to the ZIP+4 codes that start with it. To match every ZIP starting with ${postalCode}, send postal_code ${postalCode}*.`,
+          );
+        } else {
+          noticeParts.push(
+            "No providers matched. The registry matches a specialty filter as a case-insensitive prefix of a taxonomy's classification or specialization, and rejects state-only searches — try broadening, verifying the specialty resolution, or pairing state with a name/city.",
+          );
+        }
       } else if (providersInLocation.length === 0) {
         // Upstream matched, but no provider practices in the requested location. The
         // other criteria DID match, so don't emit the generic broaden notice.
@@ -555,11 +708,23 @@ export function createSearchProvidersTool(clampLimits: boolean) {
           `${filteredOut} out-of-location row(s) the registry returned were filtered out: for each, no practice location matches every requested location field on its own.`,
         );
       }
+      if (letteredPostalCode) {
+        noticeParts.push(
+          'The postal_code contains letters, and the registry matches a lettered postal code for only some of the practice addresses recorded with it, so providers at this code can be missing. To reach them all, search by the practice city without postal_code; a non-US state is recorded inconsistently (e.g. "AB" or "ALBERTA"), so adding state can drop some.',
+        );
+      }
 
       const otherNameRows = providersInLocation.filter((p) => p.matchedOtherName).length;
       if (otherNameRows > 0) {
         noticeParts.push(
           `${otherNameRows} of ${providersInLocation.length} row(s) matched through an other name rather than the current name (see matchedOtherName). The registry sorts by current name, so other-name matches can fill pages ahead of current-name matches.`,
+        );
+      }
+
+      const otherTaxonomyRows = providersInLocation.filter((p) => p.matchedTaxonomy).length;
+      if (otherTaxonomyRows > 0) {
+        noticeParts.push(
+          `${otherTaxonomyRows} of ${providersInLocation.length} row(s) matched the specialty filter through a taxonomy other than their primary specialty (see matchedTaxonomy).`,
         );
       }
 
@@ -583,7 +748,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
           noticeParts.push(
             'This is the terminal window: no further live-API page exists for this search, because only the first 1200 matches are reachable (skip max 1000, limit max 200).',
             'postalCodes' in continuation
-              ? `To continue, re-run the same arguments once per postal_code in continuationPostalCodes (${postalCodes[0]} … ${postalCodes.at(-1)}, ${postalCodes.length} values), each starting at skip 0, and follow each one's nextPage until a response names none (a page the location filter trimmed below limit can still name one); split a value that returns its own continuationPostalCodes the same way. A provider with several practice locations can appear under more than one value — dedupe by NPI. Practice addresses outside the US have no numeric ZIP and are not reached this way.`
+              ? `To continue, re-run the same arguments once per postal_code in continuationPostalCodes (${postalCodes[0]} … ${postalCodes.at(-1)}, ${postalCodes.length} values), each starting at skip 0, and follow each one's nextPage until a response names none (a page the location filter trimmed below limit can still name one); split a value that returns its own continuationPostalCodes the same way. A provider with several practice locations can appear under more than one value — dedupe by NPI. Practice addresses whose postal code is blank or contains letters (most outside the US) are not reached this way, nor is a numeric postcode shorter than the prefixes being split (a 4-digit postcode once they reach 5 digits).`
               : `No postal split remains: ${continuation.deadEnd}. Narrowing by name, specialty, or provider_type reaches other subsets of this search but is not guaranteed to cover every match.`,
           );
         }
@@ -603,10 +768,15 @@ export function createSearchProvidersTool(clampLimits: boolean) {
       for (const p of result.providers) {
         lines.push(`\n### ${p.name}${p.credential ? `, ${p.credential}` : ''}`);
         lines.push(`**NPI:** ${p.npi} | **Type:** ${p.type} | **Status:** ${p.status}`);
+        if (p.authorizedOfficial) {
+          const { name, title } = p.authorizedOfficial;
+          lines.push(`**Authorized official:** ${name}${title ? ` (${title})` : ''}`);
+        }
         if (p.primaryTaxonomy) {
-          lines.push(
-            `**Primary specialty:** ${p.primaryTaxonomy.description ?? 'Unknown'} (${p.primaryTaxonomy.code})`,
-          );
+          lines.push(`**Primary specialty:** ${renderTaxonomy(p.primaryTaxonomy)}`);
+        }
+        if (p.matchedTaxonomy) {
+          lines.push(`**Matched specialty:** ${renderTaxonomy(p.matchedTaxonomy)}`);
         }
         const location = renderLocation(p);
         if (location) lines.push(`**Location:** ${location}`);

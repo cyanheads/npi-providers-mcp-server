@@ -668,7 +668,8 @@ describe('searchProvidersTool', () => {
     const notice = enrichment(c).notice ?? '';
     expect(notice).toMatch(/none were in the requested location/i);
     // Must NOT be the generic "broaden the specialty" notice — the specialty DID match.
-    expect(notice).not.toMatch(/substring matching on specialty/i);
+    expect(notice).not.toMatch(/^No providers matched/);
+    expect(notice).not.toMatch(/prefix of a taxonomy/i);
   });
 
   it('keys truncation on the raw upstream page size, not the post-filtered count (#4)', async () => {
@@ -1149,6 +1150,32 @@ function sentQuery(fetchSpy: ReturnType<typeof vi.fn>): Record<string, string> {
   return Object.fromEntries(new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams);
 }
 
+/** A failed call's error, as `structuredContent` carries it. */
+type ErrorEnvelope = {
+  error: { code: number; message: string; data: { reason: string; recovery?: { hint: string } } };
+};
+
+/** Answer every registry request with one `Errors[]` field error, as NPPES does (HTTP 200). */
+function fieldErrorStub(field: string, number: string, description: string) {
+  const fetchSpy = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ Errors: [{ description, field, number }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+  );
+  vi.stubGlobal('fetch', fetchSpy);
+  return fetchSpy;
+}
+
+/** Run the tool through its public contract, expecting a failure; return both client surfaces. */
+async function failure(input: z.input<typeof searchProvidersTool.input>) {
+  const result = await runToolContract(searchProvidersTool, input);
+  expect(result.isError).toBe(true);
+  const text = result.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+  return { error: (result.structuredContent as unknown as ErrorEnvelope).error, text };
+}
+
 /** An individual row with one primary practice location and optional secondary ones. */
 function practiceRow(
   npi: number,
@@ -1449,10 +1476,12 @@ describe('searchProvidersTool next page (#12)', () => {
     expect(text).toContain('skip 20');
   });
 
-  it('an empty first page keeps the broaden notice (characterization)', async () => {
+  it('an empty first page keeps the broaden notice, describing prefix matching (#44)', async () => {
     pageStub([]);
     const { structured } = await contract({ last_name: 'Smith', limit: 10 });
-    expect(structured.notice).toMatch(/^No providers matched\. The registry uses substring/);
+    expect(structured.notice).toBe(
+      "No providers matched. The registry matches a specialty filter as a case-insensitive prefix of a taxonomy's classification or specialization, and rejects state-only searches — try broadening, verifying the specialty resolution, or pairing state with a name/city.",
+    );
   });
 
   it('the full-page caveat names no field the response lacks', async () => {
@@ -1547,6 +1576,258 @@ describe('searchProvidersTool terminal window continuation (#12)', () => {
     expect(structured.truncated).toBe(true);
     expect(structured.continuationPostalCodes).toEqual(digits.map((d) => `98${d}*`));
     expect(structured.notice).toMatch(/1 out-of-location row/i);
+  });
+
+  it('names blank and lettered postal codes, not all non-US ones, as unreached', async () => {
+    pageStub(pageAt(200));
+    const { structured, text } = await contract({ last_name: 'Smith', skip: 1000, limit: 200 });
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('postal code is blank or contains letters');
+      expect(surface).toContain('nor is a numeric postcode shorter than the prefixes being split');
+      expect(surface).not.toMatch(/have no numeric ZIP/);
+    }
+  });
+});
+
+// ── #42: postal_code shapes ──────────────────────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/42
+
+describe('searchProvidersTool postal_code shapes (#42)', () => {
+  /** Live row shape: the one provider at Australian postcode 6151 (2026-11-19). */
+  const SOUTH_PERTH = practiceRow(1659663912, {
+    city: 'SOUTH PERTH',
+    state: 'WESTERN AUSTRALIA',
+    postal_code: '6151',
+  });
+  /** Live row shape: the registry stores this Ontario postal code in lowercase (2026-11-19). */
+  const SIMCOE = practiceRow(1427219385, {
+    city: 'SIMCOE',
+    state: 'ONTARIO',
+    postal_code: 'n3y4k5',
+  });
+
+  it('sends a hyphenated ZIP+4 as its 9 digits', async () => {
+    const fetchSpy = pageStub([]);
+    await contract({ last_name: 'Smith', postal_code: '98105-3901' });
+    expect(sentQuery(fetchSpy)).toMatchObject({
+      postal_code: '981053901',
+      address_purpose: 'LOCATION',
+    });
+  });
+
+  it('filters rows against the 9-digit form of a hyphenated ZIP+4', async () => {
+    pageStub([
+      practiceRow(1000000011, { city: 'SEATTLE', state: 'WA', postal_code: '981053901' }),
+      practiceRow(1000000012, { city: 'SEATTLE', state: 'WA', postal_code: '98105' }),
+      practiceRow(1000000013, { city: 'SEATTLE', state: 'WA', postal_code: '981054770' }),
+    ]);
+    const { structured } = await contract({ last_name: 'Smith', postal_code: '98105-3901' });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1000000011', '1000000012']);
+  });
+
+  it('ends the postal split at a hyphenated ZIP+4 as the full ZIP+4 it is', async () => {
+    pageStub(pageAt(200, '981053901'));
+    const { structured, text } = await contract({
+      last_name: 'Smith',
+      postal_code: '98105-3901',
+      skip: 1000,
+      limit: 200,
+    });
+    expect(structured.providers).toHaveLength(200);
+    expect(structured.continuationPostalCodes).toEqual([]);
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('postal_code 981053901 is already a full ZIP+4');
+    }
+  });
+
+  it.each(['98', '981', '9810', '981054', '98105390'])(
+    'sends %s unchanged and says an empty result was matched exactly, naming the prefix form',
+    async (postal_code) => {
+      const fetchSpy = pageStub([]);
+      const { structured, text } = await contract({
+        taxonomy_description: 'Family Medicine',
+        postal_code,
+      });
+      expect(sentQuery(fetchSpy)).toMatchObject({ postal_code });
+      expect(structured.providers).toEqual([]);
+      for (const surface of [structured.notice ?? '', text]) {
+        expect(surface).toContain(`postal_code ${postal_code} was matched exactly`);
+        expect(surface).toContain(`postal_code ${postal_code}*`);
+        expect(surface).not.toMatch(/specialty filter/);
+      }
+    },
+  );
+
+  it.each(['98105', '981053901', '981*'])(
+    'keeps the broaden notice for an empty result at postal_code %s',
+    async (postal_code) => {
+      pageStub([]);
+      const { structured } = await contract({
+        taxonomy_description: 'Family Medicine',
+        postal_code,
+      });
+      expect(structured.notice).toMatch(/^No providers matched\. The registry matches a specialty/);
+      expect(structured.notice).not.toMatch(/matched exactly|contains letters/);
+    },
+  );
+
+  it('answers an empty page past skip 0 at an exactly matched postal_code with the skip notice', async () => {
+    pageStub([]);
+    const { structured, text } = await contract({
+      taxonomy_description: 'Family Medicine',
+      postal_code: '981',
+      skip: 200,
+    });
+    expect(structured.providers).toEqual([]);
+    expect(structured.notice).toMatch(/^No providers at skip 200/);
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('No providers at skip 200');
+      expect(surface).not.toContain('was matched exactly');
+    }
+  });
+
+  it('sends a 4-digit postcode unchanged and keeps the provider recorded with it (characterization)', async () => {
+    const fetchSpy = pageStub([SOUTH_PERTH]);
+    const { structured } = await contract({ postal_code: '6151' });
+    expect(sentQuery(fetchSpy)).toMatchObject({ postal_code: '6151' });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1659663912']);
+    expect(structured.notice).toBeUndefined();
+  });
+
+  it('keeps a row stored in lowercase for an uppercase lettered code, with the lettered-code notice', async () => {
+    pageStub([SIMCOE]);
+    const { structured, text } = await contract({ postal_code: 'N3Y4K5' });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1427219385']);
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('postal_code contains letters');
+      expect(surface).toContain('search by the practice city without postal_code');
+      expect(surface).not.toMatch(/none were in the requested location/);
+    }
+  });
+
+  it('keeps a lettered code matched on a secondary practice location stored in lowercase', async () => {
+    pageStub([
+      practiceRow(1427219386, { city: 'SEATTLE', state: 'WA', postal_code: '981010000' }, [
+        { city: 'SIMCOE', state: 'ONTARIO', postal_code: 'n3y4k5' },
+      ]),
+    ]);
+    const { structured } = await contract({ last_name: 'Smith', postal_code: 'N3Y4K5' });
+    expect(structured.providers[0]?.matchedLocation).toEqual({
+      city: 'SIMCOE',
+      state: 'ONTARIO',
+      postalCode: 'n3y4k5',
+    });
+  });
+
+  it('keeps a row stored in uppercase for a lowercase lettered code, with the lettered-code notice', async () => {
+    pageStub([
+      practiceRow(1427219387, { city: 'SIMCOE', state: 'ONTARIO', postal_code: 'N3Y4K5' }),
+    ]);
+    const { structured, text } = await contract({ postal_code: 'n3y4k5' });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1427219387']);
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('postal_code contains letters');
+      expect(surface).not.toMatch(/none were in the requested location/);
+    }
+  });
+
+  it('keeps a lowercase lettered code matched on a secondary practice location stored in uppercase', async () => {
+    pageStub([
+      practiceRow(1427219388, { city: 'SEATTLE', state: 'WA', postal_code: '981010000' }, [
+        { city: 'SIMCOE', state: 'ONTARIO', postal_code: 'N3Y4K5' },
+      ]),
+    ]);
+    const { structured } = await contract({ last_name: 'Smith', postal_code: 'n3y4k5' });
+    expect(structured.providers[0]?.matchedLocation).toEqual({
+      city: 'SIMCOE',
+      state: 'ONTARIO',
+      postalCode: 'N3Y4K5',
+    });
+  });
+
+  it('answers an empty lettered-code search with the lettered-code notice, not the broaden text', async () => {
+    pageStub([]);
+    const { structured, text } = await contract({ postal_code: 'T2C1N6' });
+    expect(structured.providers).toEqual([]);
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('No providers matched.');
+      expect(surface).toContain('postal_code contains letters');
+      expect(surface).not.toMatch(/specialty filter/);
+    }
+  });
+
+  it.each(['T2C 1N6', '9', '1234567890'])(
+    'relays the registry rejection of postal_code "%s" with the postal-code recovery',
+    async (postal_code) => {
+      const fetchSpy = fieldErrorStub(
+        'postal_code',
+        '05',
+        'Field contains special character(s) or wrong number of characters',
+      );
+      const { error, text } = await failure({ last_name: 'Smith', postal_code });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(sentQuery(fetchSpy)).toMatchObject({ postal_code });
+      expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+      expect(error.data.reason).toBe('invalid_search_field');
+      for (const surface of [error.data.recovery?.hint ?? '', text]) {
+        expect(surface).toContain('ddddd-dddd');
+        expect(surface).toContain('by city without postal_code');
+        expect(surface).not.toContain('state needs a companion filter');
+      }
+    },
+  );
+
+  it('keeps the declared recovery for a registry field error on another field', async () => {
+    fieldErrorStub('first_name', '03', 'Wildcards require at least two leading characters');
+    const { error, text } = await failure({ first_name: 'J*', postal_code: '98105' });
+    expect(error.data.reason).toBe('invalid_search_field');
+    expect(error.data.recovery?.hint).toBe(
+      'Read the field error; wildcards need at least 2 leading characters and state needs a companion filter.',
+    );
+    expect(text).toContain('state needs a companion filter');
+    expect(text).not.toContain('ddddd-dddd');
+  });
+
+  it.each([
+    [' 98*', '98*'],
+    ['98* ', '98*'],
+    [' 981011234* ', '981011234*'],
+    [' 98105 ', '98105'],
+    [' 98105-3901 ', '981053901'],
+    ['\t6151\n', '6151'],
+    [' N3Y4K5', 'N3Y4K5'],
+  ])('trims postal_code %j and sends %s', async (postal_code, sent) => {
+    const fetchSpy = pageStub([]);
+    await contract({ last_name: 'Smith', postal_code });
+    expect(sentQuery(fetchSpy)).toMatchObject({ postal_code: sent });
+  });
+
+  it.each(['', '   '])(
+    'treats a blank postal_code %j as omitted (characterization)',
+    async (postal_code) => {
+      const fetchSpy = pageStub([]);
+      await contract({ last_name: 'Smith', postal_code });
+      const query = sentQuery(fetchSpy);
+      expect(query).not.toHaveProperty('postal_code');
+      expect(query).not.toHaveProperty('address_purpose');
+    },
+  );
+
+  it.each([
+    '98105-3901',
+    '6151',
+    'T2C1N6',
+    'N3Y4K5',
+    'n3y4k5',
+    'T2C 1N6',
+    '9',
+    '1234567890',
+    ' 98* ',
+    '\t981011234*',
+  ])('accepts postal_code %j at the schema', (postal_code) => {
+    expect(searchProvidersTool.input.safeParse({ last_name: 'Smith', postal_code }).success).toBe(
+      true,
+    );
   });
 });
 
@@ -1774,4 +2055,782 @@ describe('searchProvidersTool plural stop words in specialty (#32)', () => {
       expect(text).toContain(`${description} (${code})`);
     },
   );
+});
+
+/** A Seattle individual row holding `taxonomies` (non-primary unless flagged), in order. */
+function taxonomyRow(
+  npi: number,
+  taxonomies: { code: string; desc?: string | null; primary?: boolean }[],
+) {
+  return {
+    number: npi,
+    enumeration_type: 'NPI-1',
+    basic: { first_name: 'PAT', last_name: 'SURGEON', credential: 'MD', status: 'A' },
+    taxonomies: taxonomies.map((taxonomy) => ({ primary: false, ...taxonomy })),
+    addresses: [
+      { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '981010000' },
+    ],
+  };
+}
+
+// ── #43: taxonomy descriptions the registry serves blank ─────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/43
+
+describe('searchProvidersTool taxonomy descriptions the registry leaves blank (#43)', () => {
+  it('decodes a null-desc primary taxonomy from NUCC on both surfaces, naming the source', async () => {
+    pageStub([taxonomyRow(1073637286, [{ code: '2086S0129X', desc: null, primary: true }])]);
+    const { structured, text } = await contract({ last_name: 'Surgeon', limit: 5 });
+    expect(structured.providers[0]?.primaryTaxonomy).toEqual({
+      code: '2086S0129X',
+      description: 'Surgery, Vascular Surgery',
+      descriptionSource: 'nucc',
+    });
+    expect(text).toContain(
+      '**Primary specialty:** Surgery, Vascular Surgery (2086S0129X; description from NUCC)',
+    );
+  });
+
+  it('renders a registry-served description unmarked (characterization)', async () => {
+    pageStub([
+      taxonomyRow(1720034424, [
+        { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease', primary: true },
+      ]),
+    ]);
+    const { structured, text } = await contract({ last_name: 'Surgeon', limit: 5 });
+    expect(structured.providers[0]?.primaryTaxonomy).toEqual({
+      code: '207RC0000X',
+      description: 'Internal Medicine, Cardiovascular Disease',
+    });
+    expect(text).toMatch(
+      /^\*\*Primary specialty:\*\* Internal Medicine, Cardiovascular Disease \(207RC0000X\)$/m,
+    );
+    expect(text).not.toContain('description from NUCC');
+  });
+
+  it('reads Unknown for a blank code the bundled set lacks (characterization)', async () => {
+    pageStub([taxonomyRow(1720034424, [{ code: '207RX9999X', desc: null, primary: true }])]);
+    const { structured, text } = await contract({ last_name: 'Surgeon', limit: 5 });
+    expect(structured.providers[0]?.primaryTaxonomy).toEqual({ code: '207RX9999X' });
+    expect(text).toMatch(/^\*\*Primary specialty:\*\* Unknown \(207RX9999X\)$/m);
+  });
+});
+
+// ── #44: the taxonomy a row matched the specialty filter through ─────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/44
+
+describe('searchProvidersTool matched taxonomy (#44)', () => {
+  const CARDIOLOGY = { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease' };
+  /**
+   * Synthetic Seattle NPI-1 rows whose taxonomy desc strings are the registry's wording on the
+   * Seattle cardiologist page (2026-11-19); their NPIs, entity types, addresses, and taxonomy
+   * lists don't reproduce any live row.
+   */
+  const HEM_ONC_PRIMARY = taxonomyRow(1053791517, [
+    { code: '207RH0003X', desc: 'Internal Medicine, Hematology & Oncology', primary: true },
+    CARDIOLOGY,
+  ]);
+  const CARDIOLOGY_PRIMARY = taxonomyRow(1720034424, [{ ...CARDIOLOGY, primary: true }]);
+  const ANESTHESIOLOGY_PRIMARY = taxonomyRow(1093736621, [
+    { code: '207L00000X', desc: 'Anesthesiology', primary: true },
+    CARDIOLOGY,
+  ]);
+
+  it('keeps every row of a specialty search, in upstream order, with the same query (characterization)', async () => {
+    const fetchSpy = pageStub([HEM_ONC_PRIMARY, CARDIOLOGY_PRIMARY, ANESTHESIOLOGY_PRIMARY]);
+    const { structured } = await contract({
+      specialty: 'cardiologist',
+      city: 'SEATTLE',
+      state: 'WA',
+      limit: 10,
+    });
+    expect(structured.providers.map((row) => row.npi)).toEqual([
+      '1053791517',
+      '1720034424',
+      '1093736621',
+    ]);
+    expect(structured.providers.map((row) => row.primaryTaxonomy)).toEqual([
+      { code: '207RH0003X', description: 'Internal Medicine, Hematology & Oncology' },
+      { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+      { code: '207L00000X', description: 'Anesthesiology' },
+    ]);
+    expect(sentQuery(fetchSpy)).toEqual({
+      version: '2.1',
+      limit: '10',
+      skip: '0',
+      taxonomy_description: 'Cardiovascular Disease',
+      city: 'SEATTLE',
+      state: 'WA',
+      address_purpose: 'LOCATION',
+    });
+    expect(structured.providers.every((row) => !('matchedLocation' in row))).toBe(true);
+  });
+
+  it('names the matched taxonomy on both surfaces and counts marked rows in the notice', async () => {
+    pageStub([HEM_ONC_PRIMARY, CARDIOLOGY_PRIMARY, ANESTHESIOLOGY_PRIMARY]);
+    const { structured, text } = await contract({
+      specialty: 'cardiologist',
+      city: 'SEATTLE',
+      state: 'WA',
+      limit: 10,
+    });
+    const cardiology = {
+      code: '207RC0000X',
+      description: 'Internal Medicine, Cardiovascular Disease',
+    };
+    expect(structured.providers.map((row) => row.matchedTaxonomy)).toEqual([
+      cardiology,
+      undefined,
+      cardiology,
+    ]);
+    expect(structured.providers[1]).not.toHaveProperty('matchedTaxonomy');
+    expect(
+      text.match(
+        /^\*\*Matched specialty:\*\* Internal Medicine, Cardiovascular Disease \(207RC0000X\)$/gm,
+      ),
+    ).toHaveLength(2);
+    expect(structured.notice).toBe(
+      '2 of 3 row(s) matched the specialty filter through a taxonomy other than their primary specialty (see matchedTaxonomy).',
+    );
+    expect(text).toContain(structured.notice);
+  });
+
+  it('marks a taxonomy_description passthrough match on a null-desc code, naming the NUCC source', async () => {
+    pageStub([
+      taxonomyRow(1073637286, [
+        {
+          code: '208G00000X',
+          desc: 'Thoracic Surgery (Cardiothoracic Vascular Surgery)',
+          primary: true,
+        },
+        { code: '2086S0129X', desc: null },
+      ]),
+    ]);
+    const { structured, text } = await contract({
+      taxonomy_description: 'Vascular Surgery',
+      state: 'WA',
+      limit: 10,
+    });
+    expect(structured.providers[0]?.matchedTaxonomy).toEqual({
+      code: '2086S0129X',
+      description: 'Surgery, Vascular Surgery',
+      descriptionSource: 'nucc',
+    });
+    expect(text).toContain(
+      '**Matched specialty:** Surgery, Vascular Surgery (2086S0129X; description from NUCC)',
+    );
+    expect(structured.notice).toMatch(/^1 of 1 row\(s\) matched the specialty filter/);
+  });
+
+  it('marks nothing, and says nothing, without a specialty filter', async () => {
+    pageStub([HEM_ONC_PRIMARY, ANESTHESIOLOGY_PRIMARY]);
+    const { structured, text } = await contract({ last_name: 'Surgeon', limit: 10 });
+    expect(structured.providers.some((row) => 'matchedTaxonomy' in row)).toBe(false);
+    expect(text).not.toContain('Matched specialty');
+    expect(structured.notice).toBeUndefined();
+  });
+
+  it('adds no matched-taxonomy notice when every row matched through its primary', async () => {
+    pageStub([CARDIOLOGY_PRIMARY]);
+    const { structured } = await contract({
+      specialty: 'cardiologist',
+      city: 'SEATTLE',
+      limit: 10,
+    });
+    expect(structured.providers[0]).not.toHaveProperty('matchedTaxonomy');
+    expect(structured.notice).toBeUndefined();
+  });
+
+  it('counts only the rows the location filter kept in the matched-taxonomy notice', async () => {
+    const portland = {
+      ...taxonomyRow(1000000044, [
+        { code: '207RH0003X', desc: 'Internal Medicine, Hematology & Oncology', primary: true },
+        CARDIOLOGY,
+      ]),
+      addresses: [
+        { address_purpose: 'LOCATION', city: 'PORTLAND', state: 'OR', postal_code: '972010000' },
+      ],
+    };
+    pageStub([HEM_ONC_PRIMARY, portland]);
+    const { structured, text } = await contract({
+      specialty: 'cardiologist',
+      city: 'SEATTLE',
+      limit: 10,
+    });
+    expect(structured.providers.map((row) => row.npi)).toEqual(['1053791517']);
+    expect(structured.providers[0]).toHaveProperty('matchedTaxonomy');
+    for (const surface of [structured.notice ?? '', text]) {
+      expect(surface).toContain('1 out-of-location row(s)');
+      expect(surface).toContain(
+        '1 of 1 row(s) matched the specialty filter through a taxonomy other than their primary specialty',
+      );
+    }
+  });
+
+  it('assembles the matched-taxonomy and other-name counts into one notice', async () => {
+    const formerSmith = {
+      ...taxonomyRow(1437702123, [{ ...CARDIOLOGY, primary: true }]),
+      basic: { first_name: 'MICALA', last_name: 'ABBIATI', status: 'A' },
+      other_names: [{ type: 'Former Name', first_name: 'MICALA', last_name: 'SMITH' }],
+    };
+    const smith = {
+      ...HEM_ONC_PRIMARY,
+      basic: { first_name: 'JANE', last_name: 'SMITH', status: 'A' },
+    };
+    pageStub([formerSmith, smith]);
+    const { structured } = await contract({
+      last_name: 'Smith',
+      taxonomy_description: 'Cardiovascular Disease',
+      limit: 5,
+    });
+    expect(structured.providers[0]).toHaveProperty('matchedOtherName');
+    expect(structured.providers[0]).not.toHaveProperty('matchedTaxonomy');
+    expect(structured.providers[1]).not.toHaveProperty('matchedOtherName');
+    expect(structured.providers[1]).toHaveProperty('matchedTaxonomy');
+    expect(structured.notice).toMatch(/1 of 2 row\(s\) matched through an other name/);
+    expect(structured.notice).toMatch(
+      /1 of 2 row\(s\) matched the specialty filter through a taxonomy other than their primary specialty/,
+    );
+  });
+
+  it('format: renders a matched specialty, with and without a NUCC-filled description', () => {
+    const text = searchProvidersTool.format!({
+      providers: [
+        {
+          npi: '1053791517',
+          type: 'individual',
+          name: 'PAT SURGEON',
+          primaryTaxonomy: {
+            code: '207RH0003X',
+            description: 'Internal Medicine, Hematology & Oncology',
+          },
+          matchedTaxonomy: {
+            code: '207RC0000X',
+            description: 'Internal Medicine, Cardiovascular Disease',
+          },
+          status: 'active',
+        },
+        {
+          npi: '1073637286',
+          type: 'individual',
+          name: 'PAT VASCULAR',
+          matchedTaxonomy: {
+            code: '2086S0129X',
+            description: 'Surgery, Vascular Surgery',
+            descriptionSource: 'nucc',
+          },
+          status: 'active',
+        },
+      ],
+    })
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain(
+      '**Primary specialty:** Internal Medicine, Hematology & Oncology (207RH0003X)\n**Matched specialty:** Internal Medicine, Cardiovascular Disease (207RC0000X)',
+    );
+    expect(text).toMatch(
+      /^\*\*Matched specialty:\*\* Surgery, Vascular Surgery \(2086S0129X; description from NUCC\)$/m,
+    );
+  });
+});
+
+// ── #45: organizations by authorized-official name ───────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/45
+
+describe('searchProvidersTool authorized-official name search (#45)', () => {
+  /** An organization row shaped like a live `name_purpose=AO` row (2026-11-19). */
+  function officialRow(
+    npi: number,
+    organizationName: string,
+    official: Record<string, string>,
+    otherNames: object[] = [],
+  ) {
+    return {
+      number: npi,
+      enumeration_type: 'NPI-2',
+      basic: { organization_name: organizationName, status: 'A', ...official },
+      other_names: otherNames,
+      addresses: [
+        { address_purpose: 'LOCATION', city: 'SEATTLE', state: 'WA', postal_code: '981010000' },
+      ],
+    };
+  }
+  // NPI 1376714063: official JUDY L SMITH, Office Manager, prefix Mrs.
+  const ARLINGTON = officialRow(1376714063, '.ARLINGTON FAMILY MEDICINE INC', {
+    authorized_official_first_name: 'JUDY',
+    authorized_official_middle_name: 'L',
+    authorized_official_last_name: 'SMITH',
+    authorized_official_name_prefix: 'Mrs.',
+    authorized_official_name_suffix: '--',
+    authorized_official_title_or_position: 'Office Manager',
+    authorized_official_telephone_number: '3178902300',
+  });
+  // An official with no title recorded.
+  const UNTITLED = officialRow(1518856988, '1 LANE XPRESS SERVICES LLC', {
+    authorized_official_first_name: 'ANTHONY',
+    authorized_official_last_name: 'SMITH',
+  });
+  // NPI 1457636912: current name AFFORDABLE EYECARE, INC; DBA SMITH OPTOMETRY; official ROBERT SMITH.
+  const AFFORDABLE = officialRow(
+    1457636912,
+    'AFFORDABLE EYECARE, INC',
+    {
+      authorized_official_first_name: 'ROBERT',
+      authorized_official_last_name: 'SMITH',
+      authorized_official_title_or_position: 'Owner',
+    },
+    [{ code: '3', organization_name: 'SMITH OPTOMETRY', type: 'Doing Business As' }],
+  );
+
+  function textOf(result: Awaited<ReturnType<typeof runToolContract>>): string {
+    return result.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n');
+  }
+
+  it('sends name_purpose=AO with NPI-2 and names each official on both surfaces', async () => {
+    const fetchSpy = pageStub([ARLINGTON, UNTITLED]);
+    const { structured, text } = await contract({
+      last_name: 'Smith',
+      name_role: 'authorized_official',
+      limit: 5,
+    });
+    expect(sentQuery(fetchSpy)).toEqual({
+      version: '2.1',
+      limit: '5',
+      skip: '0',
+      enumeration_type: 'NPI-2',
+      last_name: 'Smith',
+      name_purpose: 'AO',
+    });
+    expect(structured.providers.map((row) => row.authorizedOfficial)).toEqual([
+      { name: 'JUDY L SMITH', title: 'Office Manager' },
+      { name: 'ANTHONY SMITH' },
+    ]);
+    expect(text).toContain('**Authorized official:** JUDY L SMITH (Office Manager)');
+    expect(text).toMatch(/^\*\*Authorized official:\*\* ANTHONY SMITH$/m);
+  });
+
+  it.each([
+    [{ name_search: 'Jane Smith' }, { first_name: 'Jane', last_name: 'Smith' }],
+    [{ name_search: 'Smith' }, { last_name: 'Smith' }],
+    [
+      { last_name: 'Smith', organization_name: 'Smith*' },
+      { last_name: 'Smith', organization_name: 'Smith*' },
+    ],
+    [{ last_name: 'Smith', provider_type: 'organization' }, { last_name: 'Smith' }],
+    [
+      { last_name: 'Smith', specialty: 'cardiologist' },
+      { last_name: 'Smith', taxonomy_description: 'Cardiovascular Disease' },
+    ],
+    [
+      { first_name: 'Jo*', last_name: 'Smith', city: 'Seattle', state: 'WA' },
+      { first_name: 'Jo*', last_name: 'Smith', city: 'Seattle', state: 'WA' },
+    ],
+    [
+      { last_name: 'Smith', postal_code: '98*' },
+      { last_name: 'Smith', postal_code: '98*' },
+    ],
+  ] as const)(
+    'combines %o with an official name, raising no mixed criteria',
+    async (input, sent) => {
+      const fetchSpy = pageStub([]);
+      await contract({ ...input, name_role: 'authorized_official', limit: 5 });
+      expect(sentQuery(fetchSpy)).toMatchObject({
+        ...sent,
+        enumeration_type: 'NPI-2',
+        name_purpose: 'AO',
+      });
+    },
+  );
+
+  it.each([
+    [{ last_name: 'Smith', provider_type: 'individual' }, ['provider_type', 'name_role']],
+    [
+      { name_search: 'Jane Smith', organization_name: 'Smith*', provider_type: 'individual' },
+      ['provider_type', 'organization_name', 'name_role'],
+    ],
+  ] as const)(
+    'rejects %o with provider_type "individual" before any registry request, naming %o',
+    async (input, fields) => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+      const result = await runToolContract(searchProvidersTool, {
+        ...input,
+        name_role: 'authorized_official',
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      const { error } = result.structuredContent as unknown as ErrorEnvelope;
+      expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+      expect(error.data.reason).toBe('mixed_provider_criteria');
+      const text = textOf(result);
+      for (const field of fields) {
+        expect(error.data.recovery?.hint).toContain(field);
+        expect(text).toContain(field);
+      }
+      expect(error.data.recovery?.hint).toContain(
+        'drop provider_type "individual" to search organizations',
+      );
+      // The name fields are the official's here, never the individual side.
+      expect(text).not.toMatch(/(last_name|name_search) searches individuals/);
+    },
+  );
+
+  it('rejects provider_type "individual" with no official name as mixed criteria, before any registry request', async () => {
+    const fetchSpy = pageStub([]);
+    const { error, text } = await failure({
+      name_role: 'authorized_official',
+      provider_type: 'individual',
+      city: 'SEATTLE',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+    expect(error.data.reason).toBe('mixed_provider_criteria');
+    for (const surface of [error.message, text]) {
+      expect(surface).toContain('name_role "authorized_official" searches organizations');
+    }
+  });
+
+  it.each([
+    [{}],
+    [{ organization_name: 'Smith*' }],
+    [{ specialty: 'cardiologist' }],
+    [{ taxonomy_description: 'Dentist' }],
+    [{ city: 'Seattle', state: 'WA' }],
+    [{ postal_code: '98101' }],
+    [{ organization_name: 'Smith*', name_search: '   ', first_name: '', last_name: ' ' }],
+  ] as const)(
+    'fails %o as official_name_required, on both surfaces, before any registry request',
+    async (input) => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+      const result = await runToolContract(searchProvidersTool, {
+        ...input,
+        name_role: 'authorized_official',
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+      const { error } = result.structuredContent as unknown as ErrorEnvelope;
+      expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+      expect(error.data.reason).toBe('official_name_required');
+      expect(error.data.recovery?.hint).toMatch(/first_name or last_name/);
+      const text = textOf(result);
+      expect(text).toMatch(/Recovery:.*first_name or last_name/);
+      expect(text).toContain('name_role');
+    },
+  );
+
+  it('forwards use_first_name_alias=False for the official and reports it on both surfaces', async () => {
+    const fetchSpy = pageStub([]);
+    const result = await runToolContract(searchProvidersTool, {
+      first_name: 'Bob',
+      last_name: 'Smith',
+      name_role: 'authorized_official',
+      use_first_name_alias: false,
+    });
+    expect(result.isError).not.toBe(true);
+    expect(sentQuery(fetchSpy)).toMatchObject({
+      first_name: 'Bob',
+      last_name: 'Smith',
+      use_first_name_alias: 'False',
+      name_purpose: 'AO',
+    });
+    expect(result.structuredContent).toMatchObject({ appliedFirstNameAlias: false });
+    expect(textOf(result)).toContain('**First-name aliases:** false');
+  });
+
+  it("marks a DBA match on organization_name, never one through the official's name", async () => {
+    // The second row carries a personal other name that satisfies the official's last name.
+    const personalSmith = officialRow(
+      1000000045,
+      'JONES CLINIC LLC',
+      { authorized_official_first_name: 'PAT', authorized_official_last_name: 'SMITH' },
+      [{ type: 'Other Name', first_name: 'PAT', last_name: 'SMITH' }],
+    );
+    pageStub([AFFORDABLE, personalSmith]);
+    const { structured, text } = await contract({
+      last_name: 'Smith',
+      organization_name: 'Smith*',
+      name_role: 'authorized_official',
+      limit: 5,
+    });
+    expect(structured.providers[0]?.matchedOtherName).toEqual({
+      name: 'SMITH OPTOMETRY',
+      type: 'Doing Business As',
+    });
+    expect(text).toContain('**Matched other name:** SMITH OPTOMETRY (Doing Business As)');
+    pageStub([personalSmith]);
+    const officialOnly = await contract({
+      last_name: 'Smith',
+      name_role: 'authorized_official',
+      limit: 5,
+    });
+    expect(officialOnly.structured.providers[0]).not.toHaveProperty('matchedOtherName');
+    expect(officialOnly.text).not.toContain('Matched other name');
+  });
+
+  it.each([
+    [{ last_name: 'Smith', name_role: 'provider' }, { last_name: 'Smith' }],
+    [{ organization_name: 'Smith*' }, { organization_name: 'Smith*', enumeration_type: 'NPI-2' }],
+    [
+      { organization_name: 'Smith*', name_role: 'provider' },
+      { organization_name: 'Smith*', enumeration_type: 'NPI-2' },
+    ],
+  ] as const)(
+    "%o sends today's query and carries no authorizedOfficial (regression)",
+    async (input, sent) => {
+      const fetchSpy = pageStub([ARLINGTON]);
+      const { structured, text } = await contract({ ...input, limit: 5 });
+      expect(sentQuery(fetchSpy)).toEqual({ version: '2.1', limit: '5', skip: '0', ...sent });
+      expect(structured.providers[0]).not.toHaveProperty('authorizedOfficial');
+      expect(text).not.toContain('Authorized official');
+    },
+  );
+
+  it('keeps name_role "provider" on the individual side of the mix check (regression)', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const result = await runToolContract(searchProvidersTool, {
+      last_name: 'Smith',
+      provider_type: 'organization',
+      name_role: 'provider',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const { error } = result.structuredContent as unknown as ErrorEnvelope;
+    expect(error.data.reason).toBe('mixed_provider_criteria');
+    expect(error.data.recovery?.hint).toBe(
+      'Keep one side: drop last_name to search organizations, or drop provider_type "organization" to search individuals.',
+    );
+  });
+
+  it('format: renders an official with and without a title, and no line without one', () => {
+    const text = searchProvidersTool.format!({
+      providers: [
+        {
+          npi: '1376714063',
+          type: 'organization',
+          name: '.ARLINGTON FAMILY MEDICINE INC',
+          authorizedOfficial: { name: 'JUDY L SMITH', title: 'Office Manager' },
+          status: 'active',
+        },
+        {
+          npi: '1518856988',
+          type: 'organization',
+          name: '1 LANE XPRESS SERVICES LLC',
+          authorizedOfficial: { name: 'ANTHONY SMITH' },
+          status: 'active',
+        },
+        { npi: '1234567893', type: 'organization', name: 'EXAMPLE HEALTH', status: 'active' },
+      ],
+    })
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain(
+      '**NPI:** 1376714063 | **Type:** organization | **Status:** active\n**Authorized official:** JUDY L SMITH (Office Manager)',
+    );
+    expect(text).toMatch(/^\*\*Authorized official:\*\* ANTHONY SMITH$/m);
+    expect(text.split('**Authorized official:**')).toHaveLength(3);
+  });
+});
+
+// ── #46: plain-language specialty aliases ────────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/46
+
+describe('searchProvidersTool plain-language specialty aliases (#46)', () => {
+  it.each([
+    ['foot doctor', '213E00000X', 'Podiatrist'],
+    ['nursing home', '314000000X', 'Skilled Nursing Facility'],
+  ])('specialty "%s" resolves to %s and sends %s', async (specialty, code, description) => {
+    const fetchSpy = pageStub([]);
+    const { structured, text } = await contract({ specialty, city: 'SEATTLE' });
+    expect(sentQuery(fetchSpy).taxonomy_description).toBe(description);
+    const echo = structured as unknown as SearchEnrichment;
+    expect(echo.appliedTaxonomyDescription).toBe(description);
+    expect(echo.resolvedTaxonomies?.[0]).toEqual({ code, description });
+    expect(text).toContain(`**Resolved specialty →** ${description} (${code})`);
+  });
+});
+
+// ── #48: a NUCC code or display name in taxonomy_description ─────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/48
+
+describe('searchProvidersTool taxonomy_description codes and display names (#48)', () => {
+  /** Run a search that succeeds; return the sent query and both surfaces' taxonomy echo. */
+  async function search(input: z.input<typeof searchProvidersTool.input>) {
+    const fetchSpy = pageStub([]);
+    const { structured, text } = await contract({ city: 'SEATTLE', ...input });
+    return { query: sentQuery(fetchSpy), echo: structured as unknown as SearchEnrichment, text };
+  }
+
+  it.each([
+    ['207RC0000X', '207RC0000X', 'Cardiovascular Disease'],
+    ['207rc0000x', '207RC0000X', 'Cardiovascular Disease'],
+    ['Cardiovascular Disease Physician', '207RC0000X', 'Cardiovascular Disease'],
+    // A code whose NUCC text the registry rejects searches with the registry's wording.
+    ['1223D0004X', '1223D0004X', 'Dentist Anesthesiologist Speciality'],
+  ])(
+    'decodes taxonomy_description %j to %s and sends %j',
+    async (taxonomy_description, code, description) => {
+      const { query, echo, text } = await search({ taxonomy_description });
+      expect(query.taxonomy_description).toBe(description);
+      expect(echo.appliedTaxonomyDescription).toBe(description);
+      expect(echo.resolvedTaxonomies).toEqual([{ code, description }]);
+      expect(text).toContain(`**Resolved specialty →** ${description} (${code})`);
+      expect(text).toContain(`**appliedTaxonomyDescription:** \`${description}\``);
+    },
+  );
+
+  it('resolves a specialty the registry words differently to the registry’s wording', async () => {
+    const { query, echo, text } = await search({ specialty: 'psychiatric nurse practitioner' });
+    expect(query.taxonomy_description).toBe('Psych/Mental Health');
+    expect(echo.appliedTaxonomyDescription).toBe('Psych/Mental Health');
+    expect(echo.resolvedTaxonomies?.[0]).toEqual({
+      code: '363LP0808X',
+      description: 'Psych/Mental Health',
+    });
+    expect(text).toContain('**Resolved specialty →** Psych/Mental Health (363LP0808X)');
+    expect(text).toContain('**appliedTaxonomyDescription:** `Psych/Mental Health`');
+  });
+
+  it.each([
+    // A display name that starts a bundled classification or specialization.
+    'Critical Access Hospital',
+    // Free text: the registry's own wording, which no bundled name holds.
+    'Psych/Mental Health',
+  ])(
+    'sends taxonomy_description %j as written, with no resolvedTaxonomies (characterization)',
+    async (taxonomy_description) => {
+      const { query, echo, text } = await search({ taxonomy_description });
+      expect(query.taxonomy_description).toBe(taxonomy_description);
+      expect(echo.appliedTaxonomyDescription).toBe(taxonomy_description);
+      expect(echo).not.toHaveProperty('resolvedTaxonomies');
+      expect(text).toContain(`**appliedTaxonomyDescription:** \`${taxonomy_description}\``);
+      expect(text).not.toContain('Resolved specialty');
+    },
+  );
+
+  it('sends padded free-text taxonomy_description trimmed and echoes it trimmed', async () => {
+    const { query, echo, text } = await search({ taxonomy_description: '  Family Medicine  ' });
+    expect(query.taxonomy_description).toBe('Family Medicine');
+    expect(echo.appliedTaxonomyDescription).toBe('Family Medicine');
+    expect(echo).not.toHaveProperty('resolvedTaxonomies');
+    expect(text).toContain('**appliedTaxonomyDescription:** `Family Medicine`');
+  });
+
+  it('rejects a code the bundled NUCC set lacks as unresolved_specialty, before any request', async () => {
+    const fetchSpy = pageStub([]);
+    const { error, text } = await failure({ taxonomy_description: '207RZ9999X', city: 'SEATTLE' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(error.code).toBe(JsonRpcErrorCode.NotFound);
+    expect(error.data.reason).toBe('unresolved_specialty');
+    const message = 'taxonomy_description 207RZ9999X matches no code in the bundled NUCC taxonomy.';
+    const hint =
+      'Check the code for a typo, or find a valid one with npi_lookup_taxonomy mode resolve or browse.';
+    expect(error.message).toBe(message);
+    expect(error.data.recovery?.hint).toBe(hint);
+    expect(text).toContain(message);
+    expect(text).toContain(hint);
+  });
+
+  it.each([
+    [
+      '103GC0700X',
+      '103GC0700X Clinical Neuropsychologist (replaced by 103G00000X)',
+      'Pass the replacement code 103G00000X as taxonomy_description, or find another active code with npi_lookup_taxonomy mode resolve or browse.',
+    ],
+    [
+      '1744G0900X',
+      '1744G0900X Graphics Designer (no replacement named)',
+      'Find an active code with npi_lookup_taxonomy mode resolve or browse.',
+    ],
+  ])(
+    'rejects inactive code %s as unresolved_specialty naming its replacement, before any request',
+    async (taxonomy_description, named, hint) => {
+      const fetchSpy = pageStub([]);
+      const { error, text } = await failure({ taxonomy_description, city: 'SEATTLE' });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(error.code).toBe(JsonRpcErrorCode.NotFound);
+      expect(error.data.reason).toBe('unresolved_specialty');
+      const message = `taxonomy_description names a code NUCC marks inactive: ${named}.`;
+      expect(error.message).toBe(message);
+      expect(error.data.recovery?.hint).toBe(hint);
+      expect(text).toContain(message);
+      expect(text).toContain(hint);
+    },
+  );
+
+  it('surfaces registry error 14 as unmatched_taxonomy_description with its recovery', async () => {
+    const fetchSpy = fieldErrorStub(
+      'taxonomy_description',
+      '14',
+      'No taxonomy codes found with entered description',
+    );
+    const { error, text } = await failure({
+      taxonomy_description: 'Internal Medicine, Cardiovascular Disease',
+      city: 'SEATTLE',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(sentQuery(fetchSpy).taxonomy_description).toBe(
+      'Internal Medicine, Cardiovascular Disease',
+    );
+    expect(error.code).toBe(JsonRpcErrorCode.ValidationError);
+    expect(error.data.reason).toBe('unmatched_taxonomy_description');
+    const hint =
+      'Find the taxonomy with npi_lookup_taxonomy mode resolve and pass its code as taxonomy_description, or describe the specialty in plain language as specialty.';
+    expect(error.data.recovery?.hint).toBe(hint);
+    expect(text).toContain('No taxonomy codes found with entered description');
+    expect(text).toContain(hint);
+  });
+
+  it.each([
+    [
+      { specialty: 'diabetology' },
+      'Diabetology',
+      'The registry has no taxonomy named "Diabetology" (NUCC 207QB0505X, 207QD0401X), so resolving the specialty or passing the code again sends the same text. Search the code\'s classification instead, which also matches its other specializations: taxonomy_description "Internal Medicine" for 207QB0505X or "Family Medicine" for 207QD0401X.',
+    ],
+    [
+      { taxonomy_description: '146E00000X' },
+      'Community Paramedic',
+      'The registry has no taxonomy named "Community Paramedic" (NUCC 146E00000X), so resolving the specialty or passing the code again sends the same text. 146E00000X is a classification with no broader text: pick a related classification with npi_lookup_taxonomy mode browse, grouping "Emergency Medical Service Providers", and pass its code as taxonomy_description, or search by name or location without a specialty filter.',
+    ],
+  ] as const)(
+    'error 14 on a text bundled codes send names a route past it on both surfaces: %j',
+    async (input, sent, hint) => {
+      const fetchSpy = fieldErrorStub(
+        'taxonomy_description',
+        '14',
+        'No taxonomy codes found with entered description',
+      );
+      const { error, text } = await failure({ ...input, city: 'SEATTLE' });
+      expect(sentQuery(fetchSpy).taxonomy_description).toBe(sent);
+      expect(error.data.reason).toBe('unmatched_taxonomy_description');
+      expect(error.data.recovery?.hint).toBe(hint);
+      expect(text).toContain('No taxonomy codes found with entered description');
+      expect(text).toContain(hint);
+    },
+  );
+
+  it('marks matchedTaxonomy against a decoded code’s text, as for a specialty (#44)', async () => {
+    const cardiology = { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease' };
+    const fetchSpy = pageStub([
+      taxonomyRow(1053791517, [
+        { code: '207RH0003X', desc: 'Internal Medicine, Hematology & Oncology', primary: true },
+        cardiology,
+      ]),
+      taxonomyRow(1720034424, [{ ...cardiology, primary: true }]),
+    ]);
+    const { structured, text } = await contract({
+      taxonomy_description: '207RC0000X',
+      city: 'SEATTLE',
+    });
+    expect(sentQuery(fetchSpy).taxonomy_description).toBe('Cardiovascular Disease');
+    expect(structured.providers.map((row) => row.matchedTaxonomy)).toEqual([
+      { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+      undefined,
+    ]);
+    expect(text).toMatch(
+      /^\*\*Matched specialty:\*\* Internal Medicine, Cardiovascular Disease \(207RC0000X\)$/m,
+    );
+    expect(structured.notice).toBe(
+      '1 of 2 row(s) matched the specialty filter through a taxonomy other than their primary specialty (see matchedTaxonomy).',
+    );
+  });
 });

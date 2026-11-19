@@ -15,8 +15,10 @@ import {
 } from '@/mcp-server/tools/definitions/get-provider.tool.js';
 import { initNppesService, NppesService } from '@/services/nppes/nppes-service.js';
 import type { ProviderRecord } from '@/services/nppes/types.js';
+import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 beforeAll(() => {
+  initTaxonomyService();
   initNppesService();
 });
 
@@ -836,5 +838,70 @@ describe('getProviderTool', () => {
       });
       expect((outcome as { error: McpError }).error.data?.reason).not.toBe('none_found');
     });
+  });
+});
+
+// ── #43: taxonomy descriptions the registry serves blank ─────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/43
+
+describe('getProviderTool taxonomy descriptions the registry leaves blank (#43)', () => {
+  const NPI = '1073637286';
+
+  /** Look `NPI` up through the public contract with one primary taxonomy; return both surfaces. */
+  async function decodeTaxonomy(code: string, desc: string | null) {
+    stubRaw({
+      [NPI]: {
+        number: NPI,
+        enumeration_type: 'NPI-1',
+        basic: { first_name: 'VASCULAR', last_name: 'SURGEON', status: 'A' },
+        taxonomies: [{ code, desc, primary: true, license: 'MD61452023', state: 'WA' }],
+      },
+    });
+    const result = await runToolContract(getProviderTool, { npis: NPI });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as { found: ProviderRecord[] };
+    return {
+      taxonomy: structured.found[0]?.taxonomies[0],
+      text: result.content.map((block) => (block.type === 'text' ? block.text : '')).join('\n'),
+    };
+  }
+
+  it('decodes a null-desc taxonomy from NUCC on both surfaces, naming the source', async () => {
+    const { taxonomy, text } = await decodeTaxonomy('2086S0129X', null);
+    expect(taxonomy).toEqual({
+      code: '2086S0129X',
+      description: 'Surgery, Vascular Surgery',
+      descriptionSource: 'nucc',
+      primary: true,
+      license: 'MD61452023',
+      state: 'WA',
+    });
+    expect(text).toContain(
+      '- Surgery, Vascular Surgery (2086S0129X) — primary, description from NUCC, license MD61452023, state WA',
+    );
+  });
+
+  it('renders a registry-served description unmarked (characterization)', async () => {
+    const { taxonomy, text } = await decodeTaxonomy('208600000X', 'Surgery');
+    expect(taxonomy).toEqual({
+      code: '208600000X',
+      description: 'Surgery',
+      primary: true,
+      license: 'MD61452023',
+      state: 'WA',
+    });
+    expect(text).toContain('- Surgery (208600000X) — primary, license MD61452023, state WA');
+    expect(text).not.toContain('description from NUCC');
+  });
+
+  it('reads Unknown for a blank code the bundled set lacks (characterization)', async () => {
+    const { taxonomy, text } = await decodeTaxonomy('207RX9999X', null);
+    expect(taxonomy).toEqual({
+      code: '207RX9999X',
+      primary: true,
+      license: 'MD61452023',
+      state: 'WA',
+    });
+    expect(text).toContain('- Unknown (207RX9999X) — primary, license MD61452023, state WA');
   });
 });

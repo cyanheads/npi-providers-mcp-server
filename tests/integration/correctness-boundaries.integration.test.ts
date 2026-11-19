@@ -136,8 +136,8 @@ function stubNppes(resultsFor: (url: URL) => unknown[]): ReturnType<typeof vi.fn
 }
 
 beforeAll(() => {
-  initNppesService();
   initTaxonomyService();
+  initNppesService();
 });
 
 afterEach(() => {

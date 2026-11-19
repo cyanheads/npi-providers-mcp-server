@@ -9,9 +9,14 @@ import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import fc from 'fast-check';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NppesService } from '@/services/nppes/nppes-service.js';
+import { TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 const NPI = '1720034424';
-const service = new NppesService('https://npiregistry.cms.hhs.gov/api', 15000);
+const service = new NppesService(
+  'https://npiregistry.cms.hhs.gov/api',
+  15000,
+  new TaxonomyService(),
+);
 
 /** Answer every registry request with `body` as an HTTP 200; any other URL rejects as unmocked. */
 function stubText(body: string): ReturnType<typeof vi.fn> {
@@ -123,6 +128,256 @@ describe('NPPES response parser fuzzing', () => {
         }
       }),
       { numRuns: 75, seed: 0x4e505045 },
+    );
+  });
+
+  it('names a generated authorized official from its recorded parts, on official searches only (#45)', async () => {
+    const ctx = createMockContext();
+    const part = (value: string) =>
+      fc.constantFrom<unknown>(undefined, null, '', ' \t ', 42, value, ` ${value} `);
+    /** A part's recorded text: a non-blank string, trimmed; anything else is unrecorded. */
+    const recorded = (value: unknown) =>
+      typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    const sample = fc.record({
+      first: part('JUDY'),
+      middle: part('L'),
+      last: part('SMITH'),
+      prefix: part('Mrs.'),
+      credential: part('RN'),
+      title: part('Office Manager'),
+      telephone: part('3178902300'),
+      officialSearch: fc.boolean(),
+    });
+
+    await fc.assert(
+      fc.asyncProperty(sample, async (s) => {
+        const raw = {
+          number: Number(NPI),
+          enumeration_type: 'NPI-2',
+          basic: {
+            organization_name: 'FUZZ HEALTH',
+            status: 'A',
+            authorized_official_first_name: s.first,
+            authorized_official_middle_name: s.middle,
+            authorized_official_last_name: s.last,
+            authorized_official_name_prefix: s.prefix,
+            authorized_official_credential: s.credential,
+            authorized_official_title_or_position: s.title,
+            authorized_official_telephone_number: s.telephone,
+          },
+        };
+        // A middle name joins the name only beside a first or last name.
+        const named = Boolean(recorded(s.first) || recorded(s.last));
+        const name = [s.first, s.middle, s.last].map(recorded).filter(Boolean).join(' ');
+        const title = recorded(s.title);
+        try {
+          stubJson({ result_count: 1, results: [raw] });
+          const [row] = await service.search(
+            {
+              lastName: 'SMITH',
+              limit: 10,
+              skip: 0,
+              ...(s.officialSearch
+                ? ({ namePurpose: 'AO', enumerationType: 'NPI-2' } as const)
+                : {}),
+            },
+            ctx,
+          );
+          if (s.officialSearch && named) {
+            expect(row?.authorizedOfficial).toEqual(title ? { name, title } : { name });
+          } else {
+            expect(row).not.toHaveProperty('authorizedOfficial');
+          }
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      }),
+      { numRuns: 200, seed: 0x4e50492d },
+    );
+  });
+
+  it('decodes generated taxonomy desc variants: served text verbatim, else marked NUCC text, else none (#43)', async () => {
+    const ctx = createMockContext();
+    // Bundled NUCC text per code; 103GC0700X is inactive, 207RX9999X is not in the bundle.
+    const NUCC_TEXT: Record<string, string> = {
+      '207R00000X': 'Internal Medicine',
+      '2086S0129X': 'Surgery, Vascular Surgery',
+      '103GC0700X': 'Clinical Neuropsychologist, Clinical',
+    };
+    const taxonomy = fc.record({
+      code: fc.constantFrom('207R00000X', ' 2086S0129X ', '103GC0700X', '207RX9999X'),
+      desc: fc.constantFrom<unknown>(
+        undefined,
+        null,
+        '',
+        ' \t ',
+        7,
+        ' Nurse Practitioner, Psych/Mental Health ',
+      ),
+      primary: fc.boolean(),
+    });
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(taxonomy, { minLength: 1, maxLength: 4 }), async (taxonomies) => {
+        const raw = {
+          number: Number(NPI),
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'FUZZ', last_name: 'PROVIDER', status: 'A' },
+          taxonomies,
+        };
+        const expected = taxonomies.map(({ code, desc }) => {
+          const trimmedCode = code.trim();
+          const served = typeof desc === 'string' ? desc.trim() : '';
+          if (served) return { code: trimmedCode, description: served };
+          const nucc = NUCC_TEXT[trimmedCode];
+          return nucc
+            ? { code: trimmedCode, description: nucc, descriptionSource: 'nucc' }
+            : { code: trimmedCode };
+        });
+        const primaryIndex = Math.max(
+          taxonomies.findIndex((t) => t.primary),
+          0,
+        );
+        try {
+          stubJson({ result_count: 1, results: [raw] });
+          const record = await service.getByNumber(NPI, ctx);
+          expect(
+            record?.taxonomies.map(({ code, description, descriptionSource }) => ({
+              code,
+              ...(description === undefined ? {} : { description }),
+              ...(descriptionSource === undefined ? {} : { descriptionSource }),
+            })),
+          ).toEqual(expected);
+          stubJson({ result_count: 1, results: [raw] });
+          const [row] = await service.search({ lastName: 'PROVIDER', limit: 10, skip: 0 }, ctx);
+          expect(row?.primaryTaxonomy).toEqual(expected[primaryIndex]);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      }),
+      { numRuns: 100, seed: 0x4e554343 },
+    );
+  });
+
+  it('names the first non-primary taxonomy a generated filter matches, never the primary (#44)', async () => {
+    const ctx = createMockContext();
+    /**
+     * Taxonomies with their classification/specialization written out by hand (the
+     * registry's wording, else NUCC's for a blank desc) and the reference a row carries.
+     */
+    const POOL = [
+      {
+        raw: { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease' },
+        parts: ['Internal Medicine', 'Cardiovascular Disease'],
+        reference: { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+      },
+      {
+        raw: { code: '207RH0003X', desc: 'Internal Medicine, Hematology & Oncology' },
+        parts: ['Internal Medicine', 'Hematology & Oncology'],
+        reference: { code: '207RH0003X', description: 'Internal Medicine, Hematology & Oncology' },
+      },
+      {
+        raw: { code: '2086S0129X', desc: null },
+        parts: ['Surgery', 'Vascular Surgery'],
+        reference: {
+          code: '2086S0129X',
+          description: 'Surgery, Vascular Surgery',
+          descriptionSource: 'nucc',
+        },
+      },
+      {
+        raw: { code: '208600000X', desc: 'Surgery' },
+        parts: ['Surgery'],
+        reference: { code: '208600000X', description: 'Surgery' },
+      },
+      {
+        raw: { code: '208G00000X', desc: 'Thoracic Surgery (Cardiothoracic Vascular Surgery)' },
+        parts: ['Thoracic Surgery (Cardiothoracic Vascular Surgery)'],
+        reference: {
+          code: '208G00000X',
+          description: 'Thoracic Surgery (Cardiothoracic Vascular Surgery)',
+        },
+      },
+      {
+        raw: { code: '363LP0808X', desc: 'Nurse Practitioner, Psych/Mental Health' },
+        parts: ['Nurse Practitioner', 'Psych/Mental Health'],
+        reference: { code: '363LP0808X', description: 'Nurse Practitioner, Psych/Mental Health' },
+      },
+      {
+        raw: {
+          code: '246XC2901X',
+          desc: 'Spec/Tech, Cardiovascular, Cardiovascular Invasive Specialist',
+        },
+        parts: ['Spec/Tech, Cardiovascular', 'Cardiovascular Invasive Specialist'],
+        reference: {
+          code: '246XC2901X',
+          description: 'Spec/Tech, Cardiovascular, Cardiovascular Invasive Specialist',
+        },
+      },
+      // No NUCC specialization: the served desc is one classification holding ", ".
+      {
+        raw: { code: '246X00000X', desc: 'Spec/Tech, Cardiovascular' },
+        parts: ['Spec/Tech, Cardiovascular'],
+        reference: { code: '246X00000X', description: 'Spec/Tech, Cardiovascular' },
+      },
+      {
+        raw: { code: '222Z00000X' },
+        parts: ['Orthotist'],
+        reference: { code: '222Z00000X', description: 'Orthotist', descriptionSource: 'nucc' },
+      },
+      { raw: { code: '207RX9999X', desc: null }, parts: [], reference: { code: '207RX9999X' } },
+    ];
+    const FILTERS = [
+      'Cardio',
+      'cardiovascular disease',
+      'Surgery',
+      'Vascular Surgery',
+      'Internal Medicine',
+      'Psych',
+      'Psychiatric',
+      'Disease',
+      'Spec/Tech, Cardio',
+      'orthotist',
+      'Thoracic',
+    ];
+    const held = fc.record({ entry: fc.constantFrom(...POOL), primary: fc.boolean() });
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(held, { minLength: 1, maxLength: 5 }),
+        fc.constantFrom(...FILTERS),
+        async (taxonomies, filter) => {
+          const raw = {
+            number: Number(NPI),
+            enumeration_type: 'NPI-1',
+            basic: { first_name: 'FUZZ', last_name: 'PROVIDER', status: 'A' },
+            taxonomies: taxonomies.map(({ entry, primary }) => ({ ...entry.raw, primary })),
+          };
+          const passes = ({ entry }: (typeof taxonomies)[number]) =>
+            entry.parts.some((part) => part.toLowerCase().startsWith(filter.toLowerCase()));
+          const primary = taxonomies.find((t) => t.primary) ?? taxonomies[0];
+          const expected =
+            primary && passes(primary) ? undefined : taxonomies.find(passes)?.entry.reference;
+          try {
+            stubJson({ result_count: 1, results: [raw] });
+            const [filtered] = await service.search(
+              { taxonomyDescription: filter, limit: 10, skip: 0 },
+              ctx,
+            );
+            if (expected) expect(filtered?.matchedTaxonomy).toEqual(expected);
+            else expect(filtered).not.toHaveProperty('matchedTaxonomy');
+            stubJson({ result_count: 1, results: [raw] });
+            const [unfiltered] = await service.search(
+              { lastName: 'PROVIDER', limit: 10, skip: 0 },
+              ctx,
+            );
+            expect(unfiltered).not.toHaveProperty('matchedTaxonomy');
+          } finally {
+            vi.unstubAllGlobals();
+          }
+        },
+      ),
+      { numRuns: 150, seed: 0x4d415443 },
     );
   });
 

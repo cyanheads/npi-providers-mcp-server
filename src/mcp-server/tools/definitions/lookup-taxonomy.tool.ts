@@ -14,6 +14,28 @@ import {
 import type { TaxonomyEntry } from '@/services/taxonomy/types.js';
 import { recordLimitClamp } from '@/utils/limit-clamp.js';
 
+const NameCountSchema = z
+  .object({
+    name: z.string().describe('The grouping or classification name, as NUCC spells it.'),
+    count: z
+      .number()
+      .int()
+      .describe(
+        'Entries browse returns for this name under the same filters, inactive codes included.',
+      ),
+  })
+  .describe('A grouping or classification name with its entry count.');
+
+type NameCount = z.infer<typeof NameCountSchema>;
+
+/** A list section: heading with the row count, then one `- name — count entries` line per row. */
+function renderNameCounts(heading: string, rows: readonly NameCount[]): string {
+  return [
+    `## ${heading} (${rows.length})`,
+    ...rows.map((r) => `- ${r.name} — ${r.count} ${r.count === 1 ? 'entry' : 'entries'}`),
+  ].join('\n');
+}
+
 const EntrySchema = z
   .object({
     code: z.string().describe('NUCC taxonomy code, e.g. "207RC0000X".'),
@@ -89,7 +111,7 @@ function renderEntry(e: z.infer<typeof EntrySchema>): string {
 export function createLookupTaxonomyTool(clampLimits: boolean) {
   return tool('npi_lookup_taxonomy', {
     description:
-      'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching active taxonomy entries, excluding codes NUCC marks inactive; mode `get` returns the full entry for an exact code, including NUCC\'s Notes; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping and NUCC section. Individual includes Group codes; section does not determine NPI entity type, which comes from NPPES enumeration_type. Every entry carries its status, and an inactive code names its replacement when NUCC gives one; `get` and `browse` still return inactive codes. A resolved entry\'s specialization, or its classification when specialization is absent, maps directly to npi_search_providers.taxonomy_description.',
+      'Resolve and browse the NUCC Healthcare Provider Taxonomy — the specialty code set NPPES uses — fully offline (bundled). Mode `resolve` turns a plain-language specialty (e.g. "cardiologist", "heart doctor") into matching active taxonomy entries, excluding codes NUCC marks inactive; mode `get` returns the full entry for an exact code, including NUCC\'s Notes; mode `browse` walks the hierarchy (grouping → classification → specialization), optionally filtered by grouping, classification, and NUCC section; its first page lists the groupings the filters reach with entry counts, plus that grouping\'s classifications when they reach exactly one. Individual includes Group codes; section does not determine NPI entity type, which comes from NPPES enumeration_type. Every entry carries its status, and an inactive code names its replacement when NUCC gives one; `get` and `browse` still return inactive codes. An active entry\'s code goes straight into npi_search_providers taxonomy_description, which searches with that code\'s text.',
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
     input: z.object({
@@ -126,6 +148,12 @@ export function createLookupTaxonomyTool(clampLimits: boolean) {
         .describe(
           'Filter to a top-level grouping by case-insensitive substring, e.g. "physicians".',
         ),
+      classification: z
+        .string()
+        .optional()
+        .describe(
+          'For browse only: one classification by its full name, case-insensitive, as browse lists it, e.g. "Internal Medicine". Combines with grouping and section.',
+        ),
       section: z
         .enum(['Individual', 'Non-Individual'])
         .optional()
@@ -135,6 +163,18 @@ export function createLookupTaxonomyTool(clampLimits: boolean) {
     }),
 
     output: z.object({
+      groupings: z
+        .array(NameCountSchema)
+        .optional()
+        .describe(
+          'Browse, first page (skip 0) without classification: each grouping the grouping and section filters reach, sorted by name. Pass a name as grouping to page its entries.',
+        ),
+      classifications: z
+        .array(NameCountSchema)
+        .optional()
+        .describe(
+          'With groupings, when the filters reach exactly one grouping: its classifications, sorted by name. Keep the filters and pass a name as classification to page exactly count entries.',
+        ),
       matches: z
         .array(EntrySchema)
         .describe(
@@ -175,16 +215,16 @@ export function createLookupTaxonomyTool(clampLimits: boolean) {
         code: JsonRpcErrorCode.ValidationError,
         when: 'An explicitly supplied field belongs to a different mode.',
         recovery:
-          'Use query with resolve, code with get, and grouping or section with browse; limit and skip apply only to resolve or browse.',
+          'Use query with resolve, code with get, and grouping, classification, or section with browse; limit and skip apply only to resolve or browse.',
       },
     ],
 
     handler(input, ctx) {
       const wrongFields =
         input.mode === 'get'
-          ? (['query', 'grouping', 'section', 'limit', 'skip'] as const)
+          ? (['query', 'grouping', 'classification', 'section', 'limit', 'skip'] as const)
           : input.mode === 'resolve'
-            ? (['code', 'grouping', 'section'] as const)
+            ? (['code', 'grouping', 'classification', 'section'] as const)
             : (['query', 'code'] as const);
       const supplied = wrongFields.filter((field) => input[field] !== undefined);
       if (supplied.length > 0) {
@@ -272,42 +312,59 @@ export function createLookupTaxonomyTool(clampLimits: boolean) {
       }
 
       // mode === 'browse'
-      const hits = taxonomy.browse({
+      const classification = input.classification?.trim();
+      const filters = {
         ...(input.grouping ? { grouping: input.grouping } : {}),
+        ...(classification ? { classification } : {}),
         ...(input.section ? { section: input.section } : {}),
-        limit: limit + 1,
-        skip,
-      });
+      };
+      const hits = taxonomy.browse({ ...filters, limit: limit + 1, skip });
       const matches = hits.slice(0, limit);
+      // The first page names what the filters reach, so a caller can pick the next filter
+      // without paging entries; a classification browse is already one leaf of that list.
+      const groupings = skip === 0 && !classification ? taxonomy.listGroupings(filters) : [];
       if (matches.length === 0) {
         ctx.enrich.notice(
           clampNotice +
             (skip > 0
               ? `No more entries beyond skip=${skip}. Lower skip, or omit it to page from the start.`
-              : 'No taxonomy entries matched the browse filters. Drop the grouping/section filter, or call mode browse with no filters to see all groupings.'),
+              : 'No taxonomy entries matched the browse filters. Drop the grouping, classification, or section filter, or call mode browse with no filters to see all groupings.'),
         );
       } else if (hits.length > limit) {
         ctx.enrich.truncated({
           shown: matches.length,
           cap: limit,
-          guidance: `${clampNotice}More entries beyond this page. Page forward with skip=${skip + limit} at the same limit, or filter by grouping/section.`,
+          guidance: `${clampNotice}More entries beyond this page. Page forward with skip=${skip + limit} at the same limit, or filter by grouping, classification, or section.`,
         });
       } else if (clampNotice) ctx.enrich.notice(clampNotice.trim());
-      return { matches: matches.map(toEntry) };
+      return {
+        ...(groupings.length > 0 ? { groupings } : {}),
+        ...(groupings.length === 1
+          ? { classifications: taxonomy.listClassifications(filters) }
+          : {}),
+        matches: matches.map(toEntry),
+      };
     },
 
     format: (result) => {
-      if (result.matches.length === 0) {
-        return [{ type: 'text', text: 'No taxonomy entries matched.' }];
+      const sections: string[] = [];
+      if (result.groupings) sections.push(renderNameCounts('Groupings', result.groupings));
+      if (result.classifications) {
+        sections.push(renderNameCounts('Classifications', result.classifications));
       }
-      if (result.matches.length === 1) {
-        return [
-          { type: 'text', text: renderEntry(result.matches[0] as z.infer<typeof EntrySchema>) },
-        ];
+      const listed = sections.length > 0;
+      if (result.matches.length === 0) sections.push('No taxonomy entries matched.');
+      else if (result.matches.length === 1 && !listed) {
+        sections.push(renderEntry(result.matches[0] as z.infer<typeof EntrySchema>));
+      } else {
+        sections.push(
+          [
+            `## Taxonomy matches (${result.matches.length})`,
+            ...result.matches.map(renderEntry),
+          ].join('\n\n'),
+        );
       }
-      const lines = [`## Taxonomy matches (${result.matches.length})`];
-      for (const m of result.matches) lines.push(renderEntry(m));
-      return [{ type: 'text', text: lines.join('\n\n') }];
+      return [{ type: 'text', text: sections.join('\n\n') }];
     },
   });
 }

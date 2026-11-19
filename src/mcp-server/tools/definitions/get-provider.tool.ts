@@ -26,7 +26,18 @@ const NpiString = z
 const TaxonomySchema = z
   .object({
     code: z.string().describe('Taxonomy code.'),
-    description: z.string().optional().describe('Taxonomy description.'),
+    description: z
+      .string()
+      .optional()
+      .describe(
+        'Taxonomy description as the registry serves it ("Classification" or "Classification, Specialization"). When the registry serves none, the bundled NUCC text in the same form, marked by descriptionSource. Absent when neither has one.',
+      ),
+    descriptionSource: z
+      .enum(['nucc'])
+      .optional()
+      .describe(
+        '"nucc" when the registry served no description for this code and description comes from the bundled NUCC code set. Absent when the registry supplied it.',
+      ),
     primary: z.boolean().describe("Whether this is the provider's primary taxonomy."),
     license: z.string().optional().describe('License number for this taxonomy, when present.'),
     state: z.string().optional().describe('License state for this taxonomy, when present.'),
@@ -234,6 +245,7 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
     for (const t of r.taxonomies) {
       const extra = [
         t.primary ? 'primary' : undefined,
+        t.descriptionSource === 'nucc' ? 'description from NUCC' : undefined,
         t.license && `license ${t.license}`,
         t.state && `state ${t.state}`,
         t.taxonomyGroup && `group ${t.taxonomyGroup}`,
@@ -328,7 +340,7 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
 /** Build the batch schema using the configured raw-entry limit. */
 export function createGetProviderTool(clampLimits: boolean) {
   return tool('npi_get_provider', {
-    description: `Fetch NPPES records from up to ${clampLimits ? 100 : 10} raw NPI entries per call. Deduplicate in input order, validate check digits, and look up the first 10 distinct valid NPIs; remaining valid NPIs are listed in unprocessed and are never looked up. Decodes an NPI from a claim, prescription, or another health data source into the provider's professional-practice profile: every taxonomy with its primary flag, license number and state; practice addresses with phone and fax (only LOCATION rows are kept for individual providers, so their mailing address is withheld; organizations also carry their mailing address); credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. Each NPI must be 10 digits with a valid check digit (its last digit); every NPI failing the check digit lands in invalid and is never looked up. Reports partial success: valid NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.`,
+    description: `Fetch NPPES records from up to ${clampLimits ? 100 : 10} raw NPI entries per call. Deduplicate in input order, validate check digits, and look up the first 10 distinct valid NPIs; remaining valid NPIs are listed in unprocessed and are never looked up. Decodes an NPI from a claim, prescription, or another health data source into the provider's professional-practice profile: every taxonomy with its primary flag, license number and state (a description the registry leaves blank comes from the bundled NUCC code set, marked descriptionSource "nucc"); practice addresses with phone and fax (only LOCATION rows are kept for individual providers, so their mailing address is withheld; organizations also carry their mailing address); credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. Each NPI must be 10 digits with a valid check digit (its last digit); every NPI failing the check digit lands in invalid and is never looked up. Reports partial success: valid NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.`,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
     errors: [

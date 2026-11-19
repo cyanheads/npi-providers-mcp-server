@@ -12,6 +12,7 @@ import {
   createLookupTaxonomyTool,
   lookupTaxonomyTool,
 } from '@/mcp-server/tools/definitions/lookup-taxonomy.tool.js';
+import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
 import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 beforeAll(() => {
@@ -784,4 +785,261 @@ describe('lookupTaxonomyTool plural stop words (#32)', () => {
       expect(actual.text).toBe(expected.text);
     },
   );
+});
+
+describe('lookupTaxonomyTool everyday terms (#46)', () => {
+  // https://github.com/cyanheads/npi-providers-mcp-server/issues/46
+  it('resolve: "foot doctor" leads with Podiatrist on both surfaces', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'foot doctor' });
+    expect(isError).toBe(false);
+    expect(structured.matches?.[0]?.code).toBe('213E00000X');
+    expect(text).toMatch(/^## Taxonomy matches \(\d+\)\n\n### Podiatrist\n/);
+  });
+
+  it('resolve: a bare "and" names no specialty and points to browse', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'and' });
+    expect(isError).toBe(true);
+    expect(structured.error?.data?.reason).toBe('no_match');
+    expect(structured.error?.message).toBe('"and" names no specialty on its own.');
+    expect(text).toMatch(/Recovery:.*mode browse/);
+  });
+});
+
+describe('lookupTaxonomyTool browse lists and classification filter (#47)', () => {
+  // https://github.com/cyanheads/npi-providers-mcp-server/issues/47
+  type Row = { name: string; count: number };
+  type Lists = { groupings?: Row[]; classifications?: Row[] };
+  const lists = (structured: unknown) => structured as Lists;
+  const sum = (rows: readonly Row[] = []) => rows.reduce((n, r) => n + r.count, 0);
+  /** The content[] line each list row renders as. */
+  const line = (r: Row) => `- ${r.name} — ${r.count} ${r.count === 1 ? 'entry' : 'entries'}`;
+  const expectRowsInText = (rows: readonly Row[] = [], text: string) => {
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(text).toContain(line(row));
+  };
+
+  it('browse: an unfiltered first page lists all 29 groupings ahead of the same entries', async () => {
+    const { structured, text } = await run({ mode: 'browse' });
+    const { groupings, classifications } = lists(structured);
+    expect(groupings).toHaveLength(29);
+    expect(sum(groupings)).toBe(883);
+    expect(classifications).toBeUndefined();
+    expect(structured.matches?.map((m) => m.code)).toEqual(
+      TAXONOMY_ENTRIES.map((e) => e.code)
+        .sort((a, b) => a.localeCompare(b))
+        .slice(0, 20),
+    );
+    expect(structured.truncated).toBe(true);
+    expectRowsInText(groupings, text);
+    expect(text.indexOf('## Groupings (29)')).toBeLessThan(text.indexOf('## Taxonomy matches'));
+  });
+
+  it('browse: a grouping reaching one grouping lists it and its 37 classifications', async () => {
+    const { structured, text } = await run({ mode: 'browse', grouping: 'physicians' });
+    const { groupings, classifications } = lists(structured);
+    expect(groupings).toEqual([{ name: 'Allopathic & Osteopathic Physicians', count: 238 }]);
+    expect(classifications).toHaveLength(37);
+    expect(sum(classifications)).toBe(238);
+    expectRowsInText(groupings, text);
+    expectRowsInText(classifications, text);
+    expect(text.indexOf('## Classifications (37)')).toBeLessThan(
+      text.indexOf('## Taxonomy matches'),
+    );
+  });
+
+  it('browse: a grouping substring reaching two groupings lists both and no classifications', async () => {
+    const { structured, text } = await run({ mode: 'browse', grouping: 'physician' });
+    const { groupings, classifications } = lists(structured);
+    expect(groupings?.map((r) => r.name)).toEqual([
+      'Allopathic & Osteopathic Physicians',
+      'Physician Assistants & Advanced Practice Nursing Providers',
+    ]);
+    expect(classifications).toBeUndefined();
+    expectRowsInText(groupings, text);
+    expect(text).not.toContain('## Classifications');
+  });
+
+  it('browse: section "Non-Individual" lists its 12 groupings', async () => {
+    const { structured, text } = await run({ mode: 'browse', section: 'Non-Individual' });
+    const { groupings } = lists(structured);
+    expect(groupings).toHaveLength(12);
+    expect(sum(groupings)).toBe(185);
+    expect(groupings).toContainEqual({ name: 'Other Service Providers', count: 2 });
+    expectRowsInText(groupings, text);
+  });
+
+  it('browse: "and" reaches the grouping NUCC spells with "&"', async () => {
+    const { structured } = await run({
+      mode: 'browse',
+      grouping: 'Allopathic and Osteopathic Physicians',
+    });
+    expect(lists(structured).groupings).toEqual([
+      { name: 'Allopathic & Osteopathic Physicians', count: 238 },
+    ]);
+    expect(structured.matches).toHaveLength(20);
+  });
+
+  it.each([
+    ['Urology', 3],
+    ['surgery', 10],
+    ['Legal Medicine', 2],
+  ] as const)(
+    'browse: classification "%s" returns its %i codes and no lists',
+    async (name, count) => {
+      const { structured, text } = await run({ mode: 'browse', classification: name });
+      expect(structured.matches).toHaveLength(count);
+      expect(
+        structured.matches?.every(
+          (m) => String(m.classification).toLowerCase() === name.toLowerCase(),
+        ),
+      ).toBe(true);
+      expect(structured).not.toHaveProperty('groupings');
+      expect(structured).not.toHaveProperty('classifications');
+      expect(structured).not.toHaveProperty('truncated');
+      expect(text).not.toContain('## Groupings');
+    },
+  );
+
+  it('browse: classification "Internal Medicine" pages its 31 entries by skip', async () => {
+    const page1 = await run({ mode: 'browse', classification: 'Internal Medicine' });
+    expect(page1.structured.matches).toHaveLength(20);
+    expect(page1.structured).toMatchObject({ truncated: true, shown: 20, cap: 20 });
+    expect(page1.structured.notice).toMatch(/skip=20/);
+    expect(page1.structured.notice).toContain('classification');
+    const page2 = await run({ mode: 'browse', classification: 'Internal Medicine', skip: 20 });
+    expect(page2.structured.matches).toHaveLength(11);
+    expect(page2.structured).not.toHaveProperty('truncated');
+    const codes = [...(page1.structured.matches ?? []), ...(page2.structured.matches ?? [])].map(
+      (m) => m.code,
+    );
+    expect(new Set(codes).size).toBe(31);
+  });
+
+  it('browse: an unknown classification returns an empty page whose notice names classification', async () => {
+    const { isError, structured, text } = await run({
+      mode: 'browse',
+      classification: 'Uro',
+    });
+    expect(isError).toBe(false);
+    expect(structured.matches).toEqual([]);
+    expect(structured).not.toHaveProperty('groupings');
+    expect(structured.notice).toBe(
+      'No taxonomy entries matched the browse filters. Drop the grouping, classification, or section filter, or call mode browse with no filters to see all groupings.',
+    );
+    expect(text).toContain('No taxonomy entries matched.');
+    expect(text).toContain(structured.notice);
+  });
+
+  it('browse: lists ride only the first page', async () => {
+    const page2 = await run({ mode: 'browse', grouping: 'physicians', skip: 20 });
+    expect(page2.structured.matches).toHaveLength(20);
+    expect(page2.structured).not.toHaveProperty('groupings');
+    expect(page2.structured).not.toHaveProperty('classifications');
+    expect(page2.text).not.toContain('## Groupings');
+    const past = await run({ mode: 'browse', grouping: 'physicians', skip: 1000 });
+    expect(past.structured.matches).toEqual([]);
+    expect(past.structured).not.toHaveProperty('groupings');
+  });
+
+  it('browse: no lists when the filters reach no entry', async () => {
+    const { structured, text } = await run({ mode: 'browse', grouping: 'zzzznosuchgrouping' });
+    expect(structured.matches).toEqual([]);
+    expect(structured).not.toHaveProperty('groupings');
+    expect(text).not.toContain('## Groupings');
+  });
+
+  it('browse: a blank classification is no filter', async () => {
+    const { structured } = await run({ mode: 'browse', classification: '   ' });
+    expect(lists(structured).groupings).toHaveLength(29);
+  });
+
+  it.each(['&', 'and'])(
+    'browse: classification "%s" names no classification and matches nothing',
+    async (classification) => {
+      const { isError, structured, text } = await run({ mode: 'browse', classification });
+      expect(isError).toBe(false);
+      expect(structured.matches).toEqual([]);
+      expect(structured).not.toHaveProperty('groupings');
+      expect(structured.notice).toMatch(/^No taxonomy entries matched the browse filters\./);
+      expect(text).toContain('No taxonomy entries matched.');
+    },
+  );
+
+  it.each([
+    { mode: 'resolve', query: 'nurse', classification: 'Internal Medicine' },
+    { mode: 'resolve', classification: '' },
+    { mode: 'get', code: '207RC0000X', classification: 'Internal Medicine' },
+    { mode: 'get', classification: '' },
+  ] as const)(
+    'rejects classification outside browse before missing arguments: %j',
+    async (input) => {
+      const result = await runToolContract(lookupTaxonomyTool, input);
+      const { error } = result.structuredContent as {
+        error: { data: { reason: string; recovery: { hint: string } } };
+      };
+      expect(error.data.reason).toBe('wrong_mode_argument');
+      expect(error.data.recovery.hint).toBe(
+        'Use query with resolve, code with get, and grouping, classification, or section with browse; limit and skip apply only to resolve or browse.',
+      );
+      expect(result.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: expect.stringContaining('does not accept: classification'),
+          }),
+        ]),
+      );
+    },
+  );
+
+  it('browse: truncation guidance names classification among the filters', async () => {
+    const { structured } = await run({ mode: 'browse', limit: 2 });
+    expect(structured.notice).toBe(
+      'More entries beyond this page. Page forward with skip=2 at the same limit, or filter by grouping, classification, or section.',
+    );
+  });
+
+  describe('format', () => {
+    const entry = (code: string, displayName: string) => ({
+      code,
+      grouping: 'Allopathic & Osteopathic Physicians',
+      classification: 'Internal Medicine',
+      displayName,
+      section: 'Individual' as const,
+      status: 'active' as const,
+    });
+    const groupings = [{ name: 'Allopathic & Osteopathic Physicians', count: 238 }];
+    const classifications = [
+      { name: 'Internal Medicine', count: 31 },
+      { name: 'Legal Medicine', count: 1 },
+    ];
+    const render = (matches: ReturnType<typeof entry>[]) =>
+      lookupTaxonomyTool.format!({ groupings, classifications, matches })
+        .map((b) => (b.type === 'text' ? b.text : ''))
+        .join('\n');
+
+    it.each([
+      ['empty', []],
+      ['single-entry', [entry('207R00000X', 'Internal Medicine Physician')]],
+      [
+        'multi-entry',
+        [
+          entry('207R00000X', 'Internal Medicine Physician'),
+          entry('207RC0000X', 'Cardiovascular Disease Physician'),
+        ],
+      ],
+    ] as const)('renders every list row ahead of the entries on an %s page', (_, matches) => {
+      const text = render([...matches]);
+      for (const row of [...groupings, ...classifications]) expect(text).toContain(line(row));
+      expect(text).toContain('- Legal Medicine — 1 entry');
+      expect(text.startsWith('## Groupings (1)\n')).toBe(true);
+      expect(text.indexOf('## Classifications (2)')).toBeGreaterThan(0);
+      for (const m of matches) {
+        expect(text.indexOf(`### ${m.displayName}`)).toBeGreaterThan(
+          text.indexOf('## Classifications'),
+        );
+      }
+      if (matches.length === 0) expect(text).toContain('No taxonomy entries matched.');
+      else expect(text).toContain(`## Taxonomy matches (${matches.length})`);
+    });
+  });
 });

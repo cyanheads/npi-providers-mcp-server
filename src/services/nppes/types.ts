@@ -7,7 +7,8 @@
  * `telephone_number`, and the `identifiers`/`endpoints`/`practiceLocations` arrays
  * are frequently null or empty. Raw fields default to optional unless the service
  * validates their presence (the identity fields on `RawNppesResult`, a taxonomy's
- * `code`); normalization preserves absence rather than fabricating defaults.
+ * `code`); normalization preserves absence rather than fabricating defaults, except
+ * for the marked NUCC taxonomy description (see {@link TaxonomyReference}).
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,10 +165,21 @@ export type ProviderType = 'individual' | 'organization';
 /** Normalized provider status: `A` maps to `active`, `D` to `deactivated`. */
 export type ProviderStatus = 'active' | 'deactivated';
 
-/** A normalized taxonomy on a provider record. */
-export interface ProviderTaxonomy {
+/**
+ * A taxonomy code with its description. `description` is the registry's `desc`
+ * (`Classification` or `Classification, Specialization`) when it serves one; when it
+ * serves none, the bundled NUCC entry's text in the same form, with `descriptionSource:
+ * "nucc"` — the one field normalization fills that the registry omitted. A code the
+ * bundled set lacks keeps no description.
+ */
+export interface TaxonomyReference {
   code: string;
   description?: string;
+  descriptionSource?: 'nucc';
+}
+
+/** A normalized taxonomy on a provider record. */
+export interface ProviderTaxonomy extends TaxonomyReference {
   license?: string;
   primary: boolean;
   state?: string;
@@ -296,20 +308,31 @@ export interface MatchedOtherName {
   type?: string;
 }
 
+/** An organization's authorized official as a search row names it: "First Middle Last" and title. */
+export interface AuthorizedOfficialSummary {
+  name: string;
+  title?: string;
+}
+
 /**
  * A compact provider row for search disambiguation. `city`/`state`/`postalCode`
  * come from the primary `LOCATION` address; `practiceLocations` carries each
  * secondary practice location, so a location search can match either.
  * `matchedOtherName` is present only when the row matched the search's name
- * criteria through an other name rather than the current name.
+ * criteria through an other name rather than the current name; `matchedTaxonomy`
+ * only when it matched the search's taxonomy filter through a taxonomy other than
+ * `primaryTaxonomy`; `authorizedOfficial` only on the rows of an authorized-official
+ * name search, when the registry records a first or last name for the official.
  */
 export interface ProviderSummary extends ProviderLocation {
+  authorizedOfficial?: AuthorizedOfficialSummary;
   credential?: string;
   matchedOtherName?: MatchedOtherName;
+  matchedTaxonomy?: TaxonomyReference;
   name: string;
   npi: string;
   practiceLocations: ProviderLocation[];
-  primaryTaxonomy?: { code: string; description?: string };
+  primaryTaxonomy?: TaxonomyReference;
   status: ProviderStatus;
   type: ProviderType;
 }
@@ -321,6 +344,11 @@ export interface NppesSearchParams {
   firstName?: string;
   lastName?: string;
   limit: number;
+  /**
+   * `AO` matches `firstName`/`lastName` against each organization's authorized official
+   * instead of the provider's own name (`name_purpose=AO`); omitted, they match the provider.
+   */
+  namePurpose?: 'AO';
   organizationName?: string;
   postalCode?: string;
   skip: number;

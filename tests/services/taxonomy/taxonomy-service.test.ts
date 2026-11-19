@@ -7,10 +7,14 @@
 import { describe, expect, it } from 'vitest';
 import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
 import {
+  type BrowseFilters,
   PREFERRED_ENTRIES,
   stopWordOnlyQuery,
   TaxonomyService,
+  taxonomyDescriptionOf,
+  taxonomyNamesOf,
 } from '@/services/taxonomy/taxonomy-service.js';
+import type { TaxonomyEntry } from '@/services/taxonomy/types.js';
 
 const svc = new TaxonomyService();
 
@@ -628,12 +632,252 @@ describe('TaxonomyService', () => {
     });
   });
 
-  describe('listGroupings', () => {
-    it('returns sorted distinct groupings', () => {
+  describe('listGroupings and listClassifications (#47)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/47
+    const sum = (rows: readonly { count: number }[]) => rows.reduce((n, r) => n + r.count, 0);
+    const names = (rows: readonly { name: string }[]) => rows.map((r) => r.name);
+
+    it('lists every grouping once, sorted by name, counting all 883 entries', () => {
       const groupings = svc.listGroupings();
-      expect(groupings.length).toBeGreaterThan(5);
-      expect([...groupings]).toEqual([...groupings].sort());
+      expect(groupings).toHaveLength(29);
+      expect(sum(groupings)).toBe(883);
+      expect(new Set(names(groupings)).size).toBe(29);
+      expect(names(groupings)).toEqual([...names(groupings)].sort((a, b) => a.localeCompare(b)));
     });
+
+    it('a grouping filter reaching one grouping lists it and its 37 classifications', () => {
+      expect(svc.listGroupings({ grouping: 'physicians' })).toEqual([
+        { name: 'Allopathic & Osteopathic Physicians', count: 238 },
+      ]);
+      const classifications = svc.listClassifications({ grouping: 'physicians' });
+      expect(classifications).toHaveLength(37);
+      expect(sum(classifications)).toBe(238);
+      expect(classifications).toContainEqual({ name: 'Internal Medicine', count: 31 });
+      expect(names(classifications)).toEqual(
+        [...names(classifications)].sort((a, b) => a.localeCompare(b)),
+      );
+    });
+
+    it('a grouping substring reaching two groupings lists both', () => {
+      expect(names(svc.listGroupings({ grouping: 'physician' }))).toEqual([
+        'Allopathic & Osteopathic Physicians',
+        'Physician Assistants & Advanced Practice Nursing Providers',
+      ]);
+    });
+
+    it('counts under the section filter, inactive codes included', () => {
+      const groupings = svc.listGroupings({ section: 'Non-Individual' });
+      expect(groupings).toHaveLength(12);
+      expect(sum(groupings)).toBe(185);
+      expect(groupings).toContainEqual({ name: 'Other Service Providers', count: 2 });
+      const technologists = 'Technologists, Technicians & Other Technical Service Providers';
+      expect(
+        TAXONOMY_ENTRIES.filter((e) => e.grouping === technologists && e.status === 'inactive'),
+      ).toHaveLength(14);
+      expect(svc.listGroupings()).toContainEqual({ name: technologists, count: 65 });
+    });
+
+    it('lists nothing when the filters reach no entry', () => {
+      expect(svc.listGroupings({ grouping: 'zzzznosuchgrouping' })).toEqual([]);
+      expect(svc.listClassifications({ grouping: 'zzzznosuchgrouping' })).toEqual([]);
+    });
+
+    it.each([
+      [{}],
+      [{ section: 'Non-Individual' as const }],
+      [{ section: 'Individual' as const, grouping: 'providers' }],
+    ])('every grouping row counts what browse pages under %j', (filters) => {
+      for (const row of svc.listGroupings(filters)) {
+        const entries = svc.browse({ ...filters, grouping: row.name, limit: 1000 });
+        expect(entries).toHaveLength(row.count);
+        expect(entries.every((e) => e.grouping === row.name)).toBe(true);
+      }
+    });
+
+    it.each(['physicians', 'Nursing Service Providers', 'Hospitals'])(
+      'every classification row of grouping "%s" counts what browse pages for that name',
+      (grouping) => {
+        const rows = svc.listClassifications({ grouping });
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) {
+          const entries = svc.browse({ grouping, classification: row.name, limit: 1000 });
+          expect(entries).toHaveLength(row.count);
+          expect(entries.every((e) => e.classification === row.name)).toBe(true);
+        }
+      },
+    );
+  });
+
+  describe('browse — exact classification filter (#47)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/47
+    const codes = (opts: Parameters<typeof svc.browse>[0]) => svc.browse(opts).map((e) => e.code);
+
+    it.each([
+      ['Urology', 3],
+      ['surgery', 10],
+      ['Internal Medicine', 31],
+      ['Legal Medicine', 2],
+    ] as const)('"%s" returns only its %i codes, matched case-insensitively', (name, count) => {
+      const entries = svc.browse({ classification: name, limit: 1000 });
+      expect(entries).toHaveLength(count);
+      expect(entries.every((e) => e.classification.toLowerCase() === name.toLowerCase())).toBe(
+        true,
+      );
+    });
+
+    it('"Urology" never pulls in Psychiatry & Neurology', () => {
+      const entries = svc.browse({ classification: 'Urology', limit: 1000 });
+      expect(entries.filter((e) => /neurology/i.test(e.classification))).toEqual([]);
+    });
+
+    it('"Legal Medicine" spans two groupings unless a grouping narrows it', () => {
+      const entries = svc.browse({ classification: 'Legal Medicine', limit: 1000 });
+      expect(new Set(entries.map((e) => e.grouping)).size).toBe(2);
+      expect(
+        codes({ classification: 'Legal Medicine', grouping: 'physicians', limit: 1000 }),
+      ).toEqual(['209800000X']);
+    });
+
+    it('an unknown classification returns an empty page', () => {
+      expect(svc.browse({ classification: 'Uro', limit: 1000 })).toEqual([]);
+      expect(svc.browse({ classification: 'zzzznosuchclass', limit: 1000 })).toEqual([]);
+    });
+
+    it('combines with section and pages contiguously by skip (#7)', () => {
+      const all = codes({ classification: 'Internal Medicine', limit: 1000 });
+      expect(all).toHaveLength(31);
+      expect(all).toEqual([...all].sort((a, b) => a.localeCompare(b)));
+      const walked: string[] = [];
+      for (let skip = 0; skip < 40; skip += 10) {
+        walked.push(...codes({ classification: 'Internal Medicine', limit: 10, skip }));
+      }
+      expect(walked).toEqual(all);
+      expect(
+        codes({ classification: 'Internal Medicine', section: 'Non-Individual', limit: 1000 }),
+      ).toEqual([]);
+    });
+
+    it('every NUCC classification name returns exactly its own entries', () => {
+      const byName = new Map<string, string[]>();
+      for (const e of TAXONOMY_ENTRIES) {
+        byName.set(e.classification, [...(byName.get(e.classification) ?? []), e.code]);
+      }
+      expect(byName.size).toBe(245);
+      for (const [name, expected] of byName) {
+        expect(codes({ classification: name, limit: 1000 })).toEqual(
+          [...expected].sort((a, b) => a.localeCompare(b)),
+        );
+      }
+    });
+  });
+
+  describe('browse — "and" compares like "&" in grouping and classification (#47)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/47
+    const codes = (filters: BrowseFilters) =>
+      svc.browse({ ...filters, limit: 1000 }).map((e) => e.code);
+    /** The name with "&" spelled "and", or a standalone "and" spelled "&". */
+    const swap = (name: string) =>
+      name.includes('&') ? name.replaceAll('&', 'and') : name.replace(/\band\b/g, '&');
+
+    it('reaches the physician grouping spelled with "and"', () => {
+      expect(codes({ grouping: 'Allopathic and Osteopathic Physicians' })).toHaveLength(238);
+      expect(codes({ grouping: 'Allopathic and Osteopathic Physicians' })).toEqual(
+        codes({ grouping: 'Allopathic & Osteopathic Physicians' }),
+      );
+    });
+
+    it('reaches a grouping NUCC spells with "and" when the filter says "&"', () => {
+      const name = 'Speech, Language and Hearing Service Providers';
+      expect(codes({ grouping: name }).length).toBeGreaterThan(0);
+      expect(codes({ grouping: 'Speech, Language & Hearing' })).toEqual(codes({ grouping: name }));
+    });
+
+    it('every grouping and classification name spelled the other way returns the same entries', () => {
+      const groupings = new Set(TAXONOMY_ENTRIES.map((e) => e.grouping));
+      const classifications = new Set(TAXONOMY_ENTRIES.map((e) => e.classification));
+      const swapped = [...groupings, ...classifications].filter((n) => swap(n) !== n);
+      expect(swapped.length).toBeGreaterThanOrEqual(20);
+      for (const name of groupings) {
+        expect(codes({ grouping: name })).toEqual(
+          TAXONOMY_ENTRIES.filter((e) => e.grouping === name)
+            .map((e) => e.code)
+            .sort((a, b) => a.localeCompare(b)),
+        );
+        expect(codes({ grouping: swap(name) })).toEqual(codes({ grouping: name }));
+      }
+      for (const name of classifications) {
+        expect(codes({ classification: swap(name) })).toEqual(codes({ classification: name }));
+      }
+    });
+
+    /** Codes of the named groupings, sorted — read from the bundled data, not from browse. */
+    const groupingCodes = (...names: string[]) =>
+      TAXONOMY_ENTRIES.filter((e) => names.includes(e.grouping))
+        .map((e) => e.code)
+        .sort((a, b) => a.localeCompare(b));
+
+    it.each(['nd hearing', 'language an', 'Language and Hearing'])(
+      'a grouping filter cutting through "and" keeps its plain substring match: "%s" (characterization)',
+      (filter) => {
+        expect(codes({ grouping: filter })).toEqual(
+          groupingCodes('Speech, Language and Hearing Service Providers'),
+        );
+      },
+    );
+
+    /**
+     * The groupings whose name contains the filter once both are lower-cased with every
+     * non-alphanumeric run read as one space: the plain substring rule, read from the bundled data.
+     */
+    const substringGroupings = (filter: string) => {
+      const plain = (s: string) =>
+        s
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim();
+      return [...new Set(TAXONOMY_ENTRIES.map((e) => e.grouping))].filter((g) =>
+        plain(g).includes(plain(filter)),
+      );
+    };
+
+    it.each([
+      ['e and', 108],
+      ['and H', 9],
+      [' and R', 82],
+      ['ge and', 9],
+      ['e and R', 82],
+      ['e R', 13],
+    ] as const)(
+      'a word fragment beside "and" matches only its plain substring: "%s" (%i entries)',
+      (filter, count) => {
+        const hits = codes({ grouping: filter });
+        expect(hits).toEqual(groupingCodes(...substringGroupings(filter)));
+        expect(hits).toHaveLength(count);
+      },
+    );
+
+    it.each(['and', 'AND'])(
+      'a bare "%s" grouping keeps its substring match, never every grouping (characterization)',
+      (filter) => {
+        const hits = codes({ grouping: filter });
+        expect(hits).toEqual(
+          groupingCodes(
+            'Eye and Vision Services Providers',
+            'Respiratory, Developmental, Rehabilitative and Restorative Service Providers',
+            'Speech, Language and Hearing Service Providers',
+          ),
+        );
+        expect(hits).toHaveLength(108);
+      },
+    );
+
+    it.each(['&', 'and', 'AND', ' and & and '])(
+      'a classification that folds to nothing matches nothing: "%s"',
+      (filter) => {
+        expect(codes({ classification: filter })).toEqual([]);
+        expect(svc.listGroupings({ classification: filter })).toEqual([]);
+      },
+    );
   });
 
   describe('NUCC Notes (#11)', () => {
@@ -991,5 +1235,496 @@ describe('TaxonomyService', () => {
         expect(stopWordOnlyQuery(query)).toBeUndefined();
       },
     );
+  });
+
+  describe('resolve — everyday terms for a provider type (#46)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/46
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+    const TABLE: readonly (readonly [string, string])[] = [
+      ['skin doctor', '207N00000X'], // Dermatology
+      ['general practitioner', '208D00000X'], // General Practice
+      ['GP', '208D00000X'],
+      ['stomach doctor', '207RG0100X'], // Gastroenterology
+      ['GI doctor', '207RG0100X'],
+      ['lung doctor', '207RP1001X'], // Pulmonary Disease
+      ['ear nose throat', '207Y00000X'], // Otolaryngology
+      ['ear doctor', '207Y00000X'],
+      ['nose doctor', '207Y00000X'],
+      ['throat doctor', '207Y00000X'],
+      ['ID doctor', '207RI0200X'], // Infectious Disease
+      ['PT', '225100000X'], // Physical Therapist
+      ['OT', '225X00000X'], // Occupational Therapist
+      ['bone doctor', '207X00000X'], // Orthopaedic Surgery
+      ['brain doctor', '2084N0400X'], // Neurology
+      ['nerve doctor', '2084N0400X'],
+      ['foot doctor', '213E00000X'], // Podiatrist
+      ['pain management', '208VP0000X'], // Pain Medicine
+      ['nursing home', '314000000X'], // Skilled Nursing Facility
+      ['liver doctor', '207RI0008X'], // Hepatology
+      ['tooth doctor', '122300000X'], // Dentist
+      ['teeth doctor', '122300000X'],
+      ['arthritis doctor', '207RR0500X'], // Rheumatology
+      ['hormone doctor', '207RE0101X'], // Endocrinology, Diabetes & Metabolism
+      ['thyroid doctor', '207RE0101X'],
+      ['prostate doctor', '208800000X'], // Urology
+      ['bladder doctor', '208800000X'],
+      ['PCP', '207Q00000X'], // Family Medicine
+    ];
+
+    it.each(TABLE)('"%s" resolves to %s first', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it('every target is an active bundled code', () => {
+      for (const [, code] of TABLE) expect(svc.get(code)?.status).toBe('active');
+    });
+
+    it('"PCP" resolves to Family Medicine, then Internal Medicine', () => {
+      expect(svc.resolve('PCP', 2).map((e) => e.code)).toEqual(['207Q00000X', '207R00000X']);
+    });
+
+    it('"nursing home" reaches both nursing facilities and no supplier', () => {
+      const hits = svc.resolve('nursing home', 1000);
+      expect(hits[0]?.code).toBe('314000000X');
+      expect(hits.map((e) => e.code)).toContain('313M00000X'); // Nursing Facility/Intermediate Care
+      expect(hits.map((e) => e.code)).not.toContain('332BN1400X'); // Nursing Facility Supplies
+      expect(hits.filter((e) => e.grouping === 'Suppliers')).toEqual([]);
+    });
+
+    it.each(['OT', 'O.T.', 'ot'])('"%s" returns no Otolaryngology code', (query) => {
+      const hits = svc.resolve(query, 1000);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.filter((e) => e.classification === 'Otolaryngology')).toEqual([]);
+    });
+
+    it('"ear" never reaches the Early Intervention entries', () => {
+      expect(codes('ear')).not.toContain('252Y00000X');
+      expect(codes('ear doctor')).not.toContain('252Y00000X');
+    });
+
+    it.each([
+      ['P.T.', 'PT'],
+      ['G.I.', 'GI'],
+      ['I.D.', 'ID'],
+      ['G.P.', 'GP'],
+      ['O.T.', 'OT'],
+    ])('"%s" resolves exactly as "%s" (#29)', (dotted, plain) => {
+      expect(codes(plain).length).toBeGreaterThan(0);
+      expect(codes(dotted)).toEqual(codes(plain));
+    });
+
+    it.each([
+      ['foot', '213E00000X'],
+      ['hormone', '207RE0101X'],
+      ['thyroid', '207RE0101X'],
+    ])('"%s" moves only the preferred entry %s (#10)', (token, code) => {
+      // A repeated token matches exactly what the single token matches but bypasses the table.
+      const ranked = codes(token);
+      const unpreferred = codes(`${token} ${token}`);
+      expect([...ranked].sort()).toEqual([...unpreferred].sort());
+      expect(ranked).toEqual([code, ...unpreferred.filter((c) => c !== code)]);
+    });
+
+    it.each([
+      ['optometrist', 9, ['152W00000X', '156FX1202X', '156FX1201X', '152WS0006X', '152WV0400X']],
+      ['otolaryngologist', 8, ['207Y00000X', '207YX0905X', '207YP0228X', '207YX0901X']],
+      ['otologist', 1, ['207YX0901X']],
+      ['pediatrician', 53, ['208000000X', '2088P0231X', '2086S0120X', '207ZP0213X', '2085P0229X']],
+      ['patient', 2, ['2278P4000X', '2279P4000X']],
+      ['brain injury', 2, ['2084P0301X', '2081P0301X']],
+      ['bone densitometry', 1, ['2471B0102X']],
+      ['foot surgeon', 3, ['207XX0004X', '213ES0131X', '213ES0103X']],
+      ['nursing home administrator', 1, ['376G00000X']],
+      ['pain management pharmacist', 1, ['1835P1400X']],
+      ['pain management nurse', 1, ['163WP0000X']],
+      ['pain medicine', 5, ['208VP0000X', '207LP2900X', '2084P2900X', '208VP0014X', '2081P2900X']],
+      [
+        'pain',
+        9,
+        [
+          '208VP0000X',
+          '207LP2900X',
+          '2084P2900X',
+          '208VP0014X',
+          '2081P2900X',
+          '261QP3300X',
+          '1223X2210X',
+          '1835P1400X',
+          '163WP0000X',
+        ],
+      ],
+    ] as const)(
+      '"%s" keeps its %i matches and leading order (characterization)',
+      (query, count, lead) => {
+        const hits = codes(query);
+        expect(hits).toHaveLength(count);
+        expect(hits.slice(0, lead.length)).toEqual(lead);
+      },
+    );
+  });
+
+  describe('resolve — "and" is a stop word (#46)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/46 — NUCC writes most
+    // two-part names with "&", which normalizes away, so a spelled-out "and" was a required term.
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+
+    it.each([
+      ['obstetrics and gynecology', '207V00000X'],
+      ['allergy and immunology', '207K00000X'],
+      ['physical medicine and rehabilitation', '208100000X'],
+      ['colon and rectal surgeon', '208C00000X'],
+      ['ear nose and throat', '207Y00000X'],
+    ])('"%s" resolves to %s first', (query, code) => {
+      expect(svc.resolve(query, 1)[0]?.code).toBe(code);
+    });
+
+    it.each([
+      // The Dentist and Clinic/Center specialization NUCC spells with "and".
+      ['Oral and Maxillofacial Surgery', ['1223S0112X', '261QS0112X', '204E00000X']],
+      ['oral and maxillofacial surgery', ['1223S0112X', '261QS0112X', '204E00000X']],
+      // The physician classification NUCC spells with "&".
+      ['Oral & Maxillofacial Surgery', ['204E00000X', '1223S0112X', '261QS0112X']],
+    ])('"%s" leads with the entry whose own label it spells: %j', (query, order) => {
+      expect(codes(query)).toEqual(order);
+    });
+
+    it('every NUCC classification or specialization spelled with "and" resolves first to an entry it names', () => {
+      const names = [...new Set(TAXONOMY_ENTRIES.flatMap(taxonomyNamesOf))].filter((name) =>
+        /\band\b/i.test(name),
+      );
+      expect(names).toHaveLength(27);
+      for (const name of names) {
+        const top = svc.resolve(name, 1)[0];
+        expect(top?.specialization ?? top?.classification, name).toBe(name);
+      }
+    });
+
+    it.each([
+      ['obstetrics and gynecology', 'obstetrics gynecology'],
+      ['allergy and immunology', 'allergy immunology'],
+      ['Oral and Maxillofacial Surgery', 'Oral Maxillofacial Surgery'],
+      ['Plastic Surgery Within the Head and Neck', 'Plastic Surgery Within the Head Neck'],
+    ])('reorders only: "%s" matches what "%s" matches', (withAnd, without) => {
+      expect(codes(withAnd).length).toBeGreaterThan(0);
+      expect([...codes(withAnd)].sort()).toEqual([...codes(without)].sort());
+    });
+
+    it('"Plastic Surgery Within the Head and Neck" keeps its lead and gains the "&" twin', () => {
+      // 207YX0007X is NUCC's "Plastic Surgery within the Head & Neck" under Otolaryngology.
+      expect(codes('Plastic Surgery Within the Head and Neck')).toEqual([
+        '2082S0099X',
+        '207YX0007X',
+      ]);
+    });
+
+    it.each([
+      ['and', 'other'],
+      ['AND', 'other'],
+      ['and doctor', 'physician'],
+    ] as const)('"%s" matches nothing and is a stop-word-only query (%s)', (query, kind) => {
+      expect(svc.resolveWithInactive(query, 1000)).toEqual({ matches: [], inactiveMatches: [] });
+      expect(stopWordOnlyQuery(query)).toBe(kind);
+    });
+  });
+
+  describe('taxonomyDescriptionOf — the text that searches the registry for a code (#48)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/48 — the registry rejects
+    // these codes' NUCC v26.1 text (error 14) and matches its own wording.
+    const REGISTRY_WORDING_ROWS = [
+      ['363LP0808X', 'Psych/Mental Health'],
+      ['163WP0808X', 'Psych/Mental Health'],
+      ['364SP0808X', 'Psych/Mental Health'],
+      ['163WP0809X', 'Psych/Mental Health, Adult'],
+      ['364SP0809X', 'Psych/Mental Health, Adult'],
+      ['163WP0807X', 'Psych/Mental Health, Child & Adolescent'],
+      ['364SP0807X', 'Psych/Mental Health, Child & Adolescent'],
+      ['364SP0810X', 'Psych/Mental Health, Child & Family'],
+      ['364SP0811X', 'Psych/Mental Health, Chronically Ill'],
+      ['364SP0812X', 'Psych/Mental Health, Community'],
+      ['364SP0813X', 'Psych/Mental Health, Geropsychiatric'],
+      ['207SC0300X', 'Clinical Cytogenetic'],
+      ['1223D0004X', 'Dentist Anesthesiologist Speciality'],
+      ['261QM1100X', 'MilitaryU.S. Coast Guard Outpatient'],
+      ['332000000X', 'MilitaryU.S. Coast Guard Pharmacy'],
+      ['341800000X', 'MilitaryU.S. Coast Guard Transport'],
+      ['251T00000X', 'PACE Provider Organization'],
+      ['246Y00000X', 'Spec/Tech, Health Info'],
+      ['246Q00000X', 'Spec/Tech, Pathology'],
+      ['246X00000X', 'Spec/Tech, Cardiovascular'],
+      ['332S00000X', 'Hearing  Aid Equipment'], // two spaces, as the registry stores it
+    ] as const;
+
+    it('tables 21 distinct active codes', () => {
+      const codes = REGISTRY_WORDING_ROWS.map(([code]) => code);
+      expect(new Set(codes).size).toBe(21);
+      expect(codes.every((code) => svc.get(code)?.status === 'active')).toBe(true);
+    });
+
+    it.each(REGISTRY_WORDING_ROWS)('%s searches the registry wording "%s"', (code, wording) => {
+      const entry = svc.get(code)!;
+      expect(taxonomyDescriptionOf(entry)).toBe(wording);
+      // The NUCC text the registry rejects, so the row is a real override.
+      expect(entry.specialization ?? entry.classification).not.toBe(wording);
+    });
+
+    it.each([
+      ['207RC0000X', 'Cardiovascular Disease'], // specialization
+      ['207R00000X', 'Internal Medicine'], // classification, no specialization
+      ['222Z00000X', 'Orthotist'],
+      ['282NC0060X', 'Critical Access'],
+      ['261QM2800X', 'Methadone'],
+    ])('%s searches its specialization, else its classification: "%s"', (code, text) => {
+      expect(taxonomyDescriptionOf(svc.get(code)!)).toBe(text);
+    });
+
+    it('every other active code searches specialization ?? classification (characterization)', () => {
+      const overridden = new Set<string>(REGISTRY_WORDING_ROWS.map(([code]) => code));
+      const others = TAXONOMY_ENTRIES.filter(
+        (e) => e.status === 'active' && !overridden.has(e.code),
+      );
+      expect(others).toHaveLength(834);
+      for (const entry of others) {
+        expect(taxonomyDescriptionOf(entry)).toBe(entry.specialization ?? entry.classification);
+      }
+    });
+  });
+
+  describe('searchedBy — the active codes a registry search text stands for', () => {
+    const codes = (text: string) => svc.searchedBy(text).map((e) => e.code);
+
+    it.each([
+      ['Diabetology', ['207QB0505X', '207QD0401X']],
+      ['diabetology', ['207QB0505X', '207QD0401X']],
+      ['Community Paramedic', ['146E00000X']],
+      ['Psych/Mental Health', ['163WP0808X', '363LP0808X', '364SP0808X']],
+      ['Cardiovascular Disease', ['207RC0000X']],
+    ])('"%s" stands for %j', (text, expected) => {
+      expect(codes(text)).toEqual(expected);
+    });
+
+    it.each([
+      'Psychiatric/Mental Health', // NUCC's text, replaced by the registry's wording
+      'Internal Medicine, Cardiovascular Disease', // the combined form, which no code sends
+      'Graphics Designer', // sent only by the inactive 1744G0900X
+      'Cardiovascular Disease Physician', // a display name
+    ])('"%s" stands for no code', (text) => {
+      expect(codes(text)).toEqual([]);
+    });
+  });
+
+  describe('decodeTaxonomyDescription (#48)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/48
+    const decode = (value: string) => svc.decodeTaxonomyDescription(value);
+    const decoded = (code: string, taxonomyDescription: string) => ({
+      kind: 'decoded',
+      entry: svc.get(code),
+      taxonomyDescription,
+    });
+
+    it.each([
+      ['207RC0000X', '207RC0000X', 'Cardiovascular Disease'],
+      ['207rc0000x', '207RC0000X', 'Cardiovascular Disease'],
+      ['  207Rc0000X ', '207RC0000X', 'Cardiovascular Disease'],
+      ['222Z00000X', '222Z00000X', 'Orthotist'],
+      ['363lp0808x', '363LP0808X', 'Psych/Mental Health'],
+      ['332S00000X', '332S00000X', 'Hearing  Aid Equipment'],
+    ])('code %j decodes to %s, searching "%s"', (value, code, text) => {
+      expect(decode(value)).toEqual(decoded(code, text));
+    });
+
+    it.each([
+      ['207RZ9999X', '207RZ9999X'],
+      ['207rz9999x', '207RZ9999X'],
+      ['000000000X', '000000000X'],
+    ])('unknown code %j is unknown_code %s', (value, code) => {
+      expect(decode(value)).toEqual({ kind: 'unknown_code', code });
+    });
+
+    it('an inactive code with a named replacement is inactive_code, naming it', () => {
+      expect(decode('103gc0700x')).toEqual({ kind: 'inactive_code', entry: svc.get('103GC0700X') });
+      const result = decode('103GC0700X');
+      expect(result.kind === 'inactive_code' && result.entry.replacedBy).toBe('103G00000X');
+    });
+
+    it('an inactive code with no named replacement is inactive_code', () => {
+      const result = decode('1744G0900X');
+      expect(result).toEqual({ kind: 'inactive_code', entry: svc.get('1744G0900X') });
+      expect(result.kind === 'inactive_code' && result.entry.replacedBy).toBeUndefined();
+    });
+
+    it.each([
+      ['Cardiovascular Disease Physician', '207RC0000X', 'Cardiovascular Disease'],
+      ['  cardiovascular DISEASE physician  ', '207RC0000X', 'Cardiovascular Disease'],
+      ['Psychiatric/Mental Health Nurse Practitioner', '363LP0808X', 'Psych/Mental Health'],
+      // The three non-prefix display names the registry accepts as written decode to the same
+      // request (PACE, Hearing Aid) or to one returning the same rows (Methadone).
+      ['PACE Provider Organization', '251T00000X', 'PACE Provider Organization'],
+      ['Hearing  Aid Equipment', '332S00000X', 'Hearing  Aid Equipment'],
+      ['Methadone Clinic', '261QM2800X', 'Methadone'],
+    ])('display name %j decodes to %s, searching "%s"', (value, code, text) => {
+      expect(decode(value)).toEqual(decoded(code, text));
+    });
+
+    it.each([
+      ['Critical Access Hospital', 'Critical Access Hospital'],
+      ['critical access hospital', 'critical access hospital'],
+      ['Ph.D. Medical Genetics', 'Ph.D. Medical Genetics'],
+      ['Pharmacist', 'Pharmacist'],
+      ['  PHARMACIST ', 'PHARMACIST'],
+    ])('display name %j, a prefix of a bundled name, stays free text', (value, text) => {
+      expect(decode(value)).toEqual({ kind: 'free_text', text });
+    });
+
+    it.each([
+      ['Cardiovascular Disease', 'Cardiovascular Disease'],
+      ['Psych/Mental Health', 'Psych/Mental Health'],
+      ['  Cardio  ', 'Cardio'],
+      ['Hearing Aid Equipment', 'Hearing Aid Equipment'], // one space: NUCC's classification
+      ['207RC0000', '207RC0000'], // nine characters
+      ['207RC0000XX', '207RC0000XX'],
+      ['207RC00001', '207RC00001'], // ten characters, no trailing X
+      ['207RC 0000X', '207RC 0000X'],
+      ['Veterinary Technician', 'Veterinary Technician'], // inactive 2472V0600X's display name
+      ['', ''],
+    ])('%j is free_text', (value, text) => {
+      expect(decode(value)).toEqual({ kind: 'free_text', text });
+    });
+
+    it('decodes every active display name that is no prefix to its own entry, and only those', () => {
+      const registryNames = TAXONOMY_ENTRIES.flatMap((e) =>
+        e.specialization ? [e.classification, e.specialization] : [e.classification],
+      ).map((n) => n.toLowerCase());
+      const isPrefix = (name: string) =>
+        registryNames.some((n) => n.startsWith(name.toLowerCase()));
+      let decodedCount = 0;
+      for (const entry of TAXONOMY_ENTRIES.filter((e) => e.status === 'active')) {
+        const result = decode(entry.displayName);
+        if (isPrefix(entry.displayName)) {
+          expect(result).toEqual({ kind: 'free_text', text: entry.displayName });
+        } else {
+          expect(result).toEqual({
+            kind: 'decoded',
+            entry,
+            taxonomyDescription: taxonomyDescriptionOf(entry),
+          });
+          decodedCount += 1;
+        }
+      }
+      expect(decodedCount).toBe(654);
+    });
+
+    it('a display name that only starts another entry’s classification stays free text', () => {
+      // No bundled display name is a strict prefix of a name it doesn't equal; pin the rule.
+      const named: TaxonomyEntry = {
+        classification: 'Test Classification',
+        code: '999A00001X',
+        displayName: 'Alpha Beta',
+        grouping: 'Test Grouping',
+        section: 'Individual',
+        specialization: 'Delta',
+        status: 'active',
+      };
+      const longer: TaxonomyEntry = {
+        classification: 'Alpha Beta Gamma',
+        code: '999B00000X',
+        displayName: 'Alpha Beta Gamma Provider',
+        grouping: 'Test Grouping',
+        section: 'Individual',
+        status: 'active',
+      };
+      expect(new TaxonomyService([named]).decodeTaxonomyDescription('Alpha Beta')).toEqual({
+        kind: 'decoded',
+        entry: named,
+        taxonomyDescription: 'Delta',
+      });
+      expect(new TaxonomyService([named, longer]).decodeTaxonomyDescription('Alpha Beta')).toEqual({
+        kind: 'free_text',
+        text: 'Alpha Beta',
+      });
+    });
+
+    it('never decodes an inactive entry by display name', () => {
+      const activeNames = new Set(
+        TAXONOMY_ENTRIES.filter((e) => e.status === 'active').map((e) => e.displayName),
+      );
+      const inactiveOnly = TAXONOMY_ENTRIES.filter(
+        (e) => e.status === 'inactive' && !activeNames.has(e.displayName),
+      );
+      expect(inactiveOnly).toHaveLength(23);
+      for (const entry of inactiveOnly) {
+        expect(decode(entry.displayName)).toEqual({ kind: 'free_text', text: entry.displayName });
+      }
+    });
+
+    describe('display names shared by several entries', () => {
+      it('the bundled duplicates are five active + inactive pairs, each a prefix, so free text', () => {
+        const codesByName = new Map<string, string[]>();
+        for (const e of TAXONOMY_ENTRIES) {
+          codesByName.set(e.displayName, [...(codesByName.get(e.displayName) ?? []), e.code]);
+        }
+        const duplicates = [...codesByName].filter(([, codes]) => codes.length > 1);
+        expect(Object.fromEntries(duplicates)).toEqual({
+          'Clinical Neuropsychologist': ['103G00000X', '103GC0700X'],
+          Psychologist: ['103T00000X', '103TE1000X'],
+          Pharmacist: ['183500000X', '1835G0000X'],
+          Podiatrist: ['213E00000X', '213EG0000X'],
+          'Military Hospital': ['286500000X', '2865C1500X'],
+        });
+        for (const [name] of duplicates) {
+          expect(decode(name)).toEqual({ kind: 'free_text', text: name });
+        }
+      });
+
+      const entry = (
+        code: string,
+        specialization: string,
+        status: TaxonomyEntry['status'] = 'active',
+      ): TaxonomyEntry => ({
+        classification: 'Test Classification',
+        code,
+        displayName: 'Shared Name',
+        grouping: 'Test Grouping',
+        section: 'Individual',
+        specialization,
+        status,
+      });
+
+      it('active entries that would send different texts leave the name free text', () => {
+        const service = new TaxonomyService([
+          entry('999A00001X', 'Alpha'),
+          entry('999A00002X', 'Beta'),
+        ]);
+        expect(service.decodeTaxonomyDescription('shared name')).toEqual({
+          kind: 'free_text',
+          text: 'shared name',
+        });
+      });
+
+      it('active entries that send the same text decode to the first', () => {
+        const first = entry('999A00001X', 'Alpha');
+        const service = new TaxonomyService([first, entry('999A00002X', 'Alpha')]);
+        expect(service.decodeTaxonomyDescription('Shared Name')).toEqual({
+          kind: 'decoded',
+          entry: first,
+          taxonomyDescription: 'Alpha',
+        });
+      });
+
+      it('an inactive entry never takes part: the active one decodes, an inactive one alone does not', () => {
+        const active = entry('999A00001X', 'Alpha');
+        const inactive = entry('999A00002X', 'Beta', 'inactive');
+        expect(
+          new TaxonomyService([inactive, active]).decodeTaxonomyDescription('Shared Name'),
+        ).toEqual({
+          kind: 'decoded',
+          entry: active,
+          taxonomyDescription: 'Alpha',
+        });
+        expect(new TaxonomyService([inactive]).decodeTaxonomyDescription('Shared Name')).toEqual({
+          kind: 'free_text',
+          text: 'Shared Name',
+        });
+      });
+    });
   });
 });

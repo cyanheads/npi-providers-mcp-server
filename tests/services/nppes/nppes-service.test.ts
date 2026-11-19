@@ -9,8 +9,9 @@ import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NppesService } from '@/services/nppes/nppes-service.js';
+import { TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
-const svc = new NppesService('https://npiregistry.cms.hhs.gov/api', 15000);
+const svc = new NppesService('https://npiregistry.cms.hhs.gov/api', 15000, new TaxonomyService());
 const ctx = createMockContext();
 
 function jsonResponse(body: unknown): Response {
@@ -758,7 +759,15 @@ describe('NppesService malformed-response boundary (#15)', () => {
       status: 'active',
       name: 'ABATE',
       lastName: 'ABATE',
-      taxonomies: [{ code: '207R00000X', primary: false }],
+      // The non-string desc reads as served-none, so the bundled NUCC text fills it, marked (#43).
+      taxonomies: [
+        {
+          code: '207R00000X',
+          description: 'Internal Medicine',
+          descriptionSource: 'nucc',
+          primary: false,
+        },
+      ],
       addresses: [{ purpose: 'LOCATION', line1: '1 MAIN ST' }],
       practiceLocations: [{}],
       identifiers: [{ identifier: 'WA-1' }],
@@ -800,6 +809,95 @@ describe('NppesService Errors[]-on-200 detection', () => {
     const err = await svc.search({ state: 'WA', limit: 10, skip: 0 }, ctx).catch((e) => e);
     expect(err.code).toBe(JsonRpcErrorCode.ValidationError);
     expect(err.data.reason).toBe('invalid_search_field');
+  });
+
+  it('maps number:14 (no taxonomy for the description) to unmatched_taxonomy_description', async () => {
+    const fetchSpy = stubJson({
+      Errors: [
+        {
+          description: 'No taxonomy codes found with entered description',
+          field: 'taxonomy_description',
+          number: '14',
+        },
+      ],
+    });
+    const err = await svc
+      .search({ taxonomyDescription: 'Cardiovascular Disease Physician', limit: 10, skip: 0 }, ctx)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(McpError);
+    expect(err.code).toBe(JsonRpcErrorCode.ValidationError);
+    expect(err.data.reason).toBe('unmatched_taxonomy_description');
+    expect(err.data.retryable).toBe(false);
+    // The calling tool's declared recovery fills the hint; the service sets none.
+    expect(err.data).not.toHaveProperty('recovery');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      // Specializations: their classifications are the broader text the registry matches.
+      'Diabetology',
+      'The registry has no taxonomy named "Diabetology" (NUCC 207QB0505X, 207QD0401X), so resolving the specialty or passing the code again sends the same text. Search the code\'s classification instead, which also matches its other specializations: taxonomy_description "Internal Medicine" for 207QB0505X or "Family Medicine" for 207QD0401X.',
+    ],
+    [
+      'diabetology',
+      'The registry has no taxonomy named "diabetology" (NUCC 207QB0505X, 207QD0401X), so resolving the specialty or passing the code again sends the same text. Search the code\'s classification instead, which also matches its other specializations: taxonomy_description "Internal Medicine" for 207QB0505X or "Family Medicine" for 207QD0401X.',
+    ],
+    [
+      // A classification code: nothing broader to search.
+      'Community Paramedic',
+      'The registry has no taxonomy named "Community Paramedic" (NUCC 146E00000X), so resolving the specialty or passing the code again sends the same text. 146E00000X is a classification with no broader text: pick a related classification with npi_lookup_taxonomy mode browse, grouping "Emergency Medical Service Providers", and pass its code as taxonomy_description, or search by name or location without a specialty filter.',
+    ],
+  ])(
+    'carries a route past the rejected text on number:14 when bundled codes send %j',
+    async (taxonomyDescription, hint) => {
+      stubJson({
+        Errors: [
+          {
+            description: 'No taxonomy codes found with entered description',
+            field: 'taxonomy_description',
+            number: '14',
+          },
+        ],
+      });
+      const err = await svc
+        .search({ taxonomyDescription, limit: 10, skip: 0 }, ctx)
+        .catch((e) => e);
+      expect(err.data.reason).toBe('unmatched_taxonomy_description');
+      expect(err.data.retryable).toBe(false);
+      expect(err.data.recovery).toEqual({ hint });
+    },
+  );
+
+  it.each([
+    ['05', 'Field contains special character(s) or wrong number of characters'],
+    ['03', 'Wildcards require at least two leading characters'],
+  ])(
+    'carries the postal-code recovery on a postal_code field error (number:%s)',
+    async (number, description) => {
+      stubJson({ Errors: [{ description, field: 'postal_code', number }] });
+      const err = await svc
+        .search({ postalCode: 'T2C 1N6', limit: 10, skip: 0 }, ctx)
+        .catch((e) => e);
+      expect(err.data.reason).toBe('invalid_search_field');
+      expect(err.data.retryable).toBe(false);
+      const hint: string = err.data.recovery?.hint ?? '';
+      expect(hint).toContain('5-digit ZIP');
+      expect(hint).toContain('ddddd-dddd');
+      expect(hint).toContain('2–9 digit prefix with one trailing "*"');
+      expect(hint).toContain('by city without postal_code');
+    },
+  );
+
+  it.each([
+    ['state', '07', 'State requires additional criteria'],
+    ['first_name', '03', 'Wildcards require at least two leading characters'],
+    ['', '04', 'No valid search criteria'],
+  ])('leaves a %j field error to the declared recovery', async (field, number, description) => {
+    stubJson({ Errors: [{ description, field, number }] });
+    const err = await svc.search({ postalCode: '98105', limit: 10, skip: 0 }, ctx).catch((e) => e);
+    expect(err).toBeInstanceOf(McpError);
+    expect(err.data).not.toHaveProperty('recovery');
   });
 });
 
@@ -1201,5 +1299,466 @@ describe('NppesService.search other-name matches (#26)', () => {
     const row = await searchOne(criteria, basic, otherNames);
     expect(row).toBeDefined();
     expect(row).not.toHaveProperty('matchedOtherName');
+  });
+});
+
+// ── #45: organizations by authorized-official name ───────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/45
+
+describe('NppesService.search authorized-official name search (#45)', () => {
+  const AO = { namePurpose: 'AO', enumerationType: 'NPI-2' } as const;
+
+  /** One search over a single organization row; returns its summary. */
+  async function searchOne(
+    params: Omit<Parameters<NppesService['search']>[0], 'limit' | 'skip'>,
+    basic: object,
+    otherNames: object[] = [],
+  ) {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1457636912',
+          enumeration_type: 'NPI-2',
+          basic: { organization_name: 'AFFORDABLE EYECARE, INC', ...basic, status: 'A' },
+          other_names: otherNames,
+        },
+      ],
+    });
+    const [row] = await svc.search({ limit: 10, skip: 0, ...params }, ctx);
+    return row;
+  }
+
+  it('sends name_purpose=AO beside the name and enumeration type', async () => {
+    const fetchSpy = stubJson({ result_count: 0, results: [] });
+    await svc.search({ ...AO, firstName: 'ROBERT', lastName: 'SMITH', limit: 10, skip: 0 }, ctx);
+    expect(Object.fromEntries(new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams)).toEqual({
+      version: '2.1',
+      limit: '10',
+      skip: '0',
+      enumeration_type: 'NPI-2',
+      first_name: 'ROBERT',
+      last_name: 'SMITH',
+      name_purpose: 'AO',
+    });
+  });
+
+  // Live shape (NPI 1376714063): first JUDY, middle L, last SMITH, prefix Mrs., suffix "--".
+  const JUDY = {
+    authorized_official_first_name: 'JUDY',
+    authorized_official_middle_name: 'L',
+    authorized_official_last_name: 'SMITH',
+    authorized_official_name_prefix: 'Mrs.',
+    authorized_official_name_suffix: '--',
+    authorized_official_credential: 'RN',
+    authorized_official_title_or_position: 'Office Manager',
+    authorized_official_telephone_number: '3178902300',
+  };
+
+  it.each([
+    [
+      'every part present (prefix, suffix, credential, and phone left out)',
+      JUDY,
+      { name: 'JUDY L SMITH', title: 'Office Manager' },
+    ],
+    [
+      'no middle name',
+      { ...JUDY, authorized_official_middle_name: undefined },
+      { name: 'JUDY SMITH', title: 'Office Manager' },
+    ],
+    [
+      'no first name',
+      { ...JUDY, authorized_official_first_name: null },
+      { name: 'L SMITH', title: 'Office Manager' },
+    ],
+    [
+      'a blank last name',
+      { ...JUDY, authorized_official_last_name: '  ' },
+      { name: 'JUDY L', title: 'Office Manager' },
+    ],
+    ['only a padded last name', { authorized_official_last_name: ' SMITH ' }, { name: 'SMITH' }],
+    [
+      'no title',
+      { ...JUDY, authorized_official_title_or_position: undefined },
+      { name: 'JUDY L SMITH' },
+    ],
+    [
+      'a blank title',
+      { ...JUDY, authorized_official_title_or_position: '   ' },
+      { name: 'JUDY L SMITH' },
+    ],
+    [
+      'a non-string name part',
+      { ...JUDY, authorized_official_middle_name: 7 },
+      { name: 'JUDY SMITH', title: 'Office Manager' },
+    ],
+  ])('names the official from %s', async (_label, basic, expected) => {
+    const row = await searchOne({ ...AO, lastName: 'SMITH' }, basic);
+    expect(row?.authorizedOfficial).toEqual(expected);
+  });
+
+  it.each([
+    [
+      'a title and phone but no name part',
+      {
+        authorized_official_first_name: '',
+        authorized_official_title_or_position: 'Owner',
+        authorized_official_telephone_number: '3148633937',
+      },
+    ],
+    [
+      'a middle name and title without a first or last name',
+      {
+        authorized_official_middle_name: 'L',
+        authorized_official_title_or_position: 'Office Manager',
+      },
+    ],
+    ['no official fields at all', {}],
+  ])('omits authorizedOfficial for %s', async (_label, basic) => {
+    const row = await searchOne({ ...AO, lastName: 'SMITH' }, basic);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('authorizedOfficial');
+  });
+
+  it.each([
+    ['an organization-name search', { organizationName: 'Affordable*', enumerationType: 'NPI-2' }],
+    ['a location search', { city: 'SAINT LOUIS', state: 'MO' }],
+  ] as const)(
+    'leaves authorizedOfficial off the rows of %s (characterization)',
+    async (_label, params) => {
+      const row = await searchOne(params, JUDY);
+      expect(row).toBeDefined();
+      expect(row).not.toHaveProperty('authorizedOfficial');
+    },
+  );
+
+  it('marks a DBA match on organization_name beside an official last name', async () => {
+    const row = await searchOne({ ...AO, lastName: 'SMITH', organizationName: 'SMITH*' }, JUDY, [
+      { code: '3', organization_name: 'SMITH OPTOMETRY', type: 'Doing Business As' },
+    ]);
+    expect(row?.matchedOtherName).toEqual({ name: 'SMITH OPTOMETRY', type: 'Doing Business As' });
+  });
+
+  it.each([
+    ['last name', { lastName: 'SMITH' }],
+    ['wildcard first name', { firstName: 'PA*', lastName: 'SMITH' }],
+    [
+      'last name beside an organization name the current name satisfies',
+      { lastName: 'SMITH', organizationName: 'AFFORD*' },
+    ],
+  ] as const)("never marks an other name through the official's %s", async (_label, names) => {
+    const row = await searchOne({ ...AO, ...names }, JUDY, [
+      { type: 'Other Name', first_name: 'PAT', last_name: 'SMITH' },
+    ]);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('matchedOtherName');
+  });
+});
+
+// ── #43: taxonomy descriptions the registry serves blank ─────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/43
+
+describe('NppesService taxonomy descriptions the registry leaves blank (#43)', () => {
+  const LICENSE = { license: 'MD61452023', state: 'WA' };
+
+  /** A record whose taxonomies carry `desc` exactly as given; an `undefined` desc omits the key. */
+  function recordWith(taxonomies: { code: string; desc?: unknown; primary?: boolean }[]) {
+    return {
+      result_count: 1,
+      results: [
+        {
+          number: '1073637286',
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'VASCULAR', last_name: 'SURGEON', status: 'A' },
+          taxonomies: taxonomies.map(({ code, desc, primary }) => ({
+            code,
+            ...(desc === undefined ? {} : { desc }),
+            primary: primary ?? true,
+            ...LICENSE,
+          })),
+        },
+      ],
+    };
+  }
+
+  /** The one taxonomy's normalized form on the decoded record and on the search row. */
+  async function bothSurfaces(code: string, desc: unknown) {
+    stubJson(recordWith([{ code, desc }]));
+    const record = await svc.getByNumber('1073637286', ctx);
+    stubJson(recordWith([{ code, desc }]));
+    const [row] = await svc.search({ lastName: 'SURGEON', limit: 10, skip: 0 }, ctx);
+    return { taxonomy: record?.taxonomies[0], primaryTaxonomy: row?.primaryTaxonomy };
+  }
+
+  const BLANK_DESCS: [string, unknown][] = [
+    ['absent', undefined],
+    ['null', null],
+    ['empty', ''],
+    ['whitespace', ' \t '],
+  ];
+
+  it('passes a registry-served desc through verbatim, with no descriptionSource (characterization)', async () => {
+    // The registry's wording, which differs from NUCC v26.1 ("Psychiatric/Mental Health").
+    const served = 'Nurse Practitioner, Psych/Mental Health';
+    const { taxonomy, primaryTaxonomy } = await bothSurfaces('363LP0808X', served);
+    expect(taxonomy).toEqual({
+      code: '363LP0808X',
+      description: served,
+      primary: true,
+      ...LICENSE,
+    });
+    expect(primaryTaxonomy).toEqual({ code: '363LP0808X', description: served });
+  });
+
+  it.each(BLANK_DESCS)(
+    'keeps no description for a code the bundled set lacks when desc is %s (characterization)',
+    async (_label, desc) => {
+      const { taxonomy, primaryTaxonomy } = await bothSurfaces('207RX9999X', desc);
+      expect(taxonomy).toEqual({ code: '207RX9999X', primary: true, ...LICENSE });
+      expect(primaryTaxonomy).toEqual({ code: '207RX9999X' });
+    },
+  );
+
+  const NUCC_DECODES: [code: string, description: string][] = [
+    ['2086S0129X', 'Surgery, Vascular Surgery'],
+    ['222Z00000X', 'Orthotist'],
+    // NUCC marks 103GC0700X inactive: decoded as `get` reads it, never resolved.
+    ['103GC0700X', 'Clinical Neuropsychologist, Clinical'],
+  ];
+
+  it.each(
+    BLANK_DESCS.flatMap(([label, desc]) =>
+      NUCC_DECODES.map(([code, description]) => [code, label, desc, description] as const),
+    ),
+  )(
+    'decodes %s from the bundled NUCC set when desc is %s, marked descriptionSource "nucc"',
+    async (code, _label, desc, description) => {
+      const { taxonomy, primaryTaxonomy } = await bothSurfaces(code, desc);
+      expect(taxonomy).toEqual({
+        code,
+        description,
+        descriptionSource: 'nucc',
+        primary: true,
+        ...LICENSE,
+      });
+      expect(primaryTaxonomy).toEqual({ code, description, descriptionSource: 'nucc' });
+    },
+  );
+
+  it('fills every blank taxonomy on a record, leaving served ones untouched', async () => {
+    stubJson(
+      recordWith([
+        { code: '2086S0129X', desc: null },
+        { code: '208600000X', desc: 'Surgery', primary: false },
+        { code: '222Z00000X', primary: false },
+        { code: '207RX9999X', desc: '', primary: false },
+      ]),
+    );
+    const record = await svc.getByNumber('1073637286', ctx);
+    expect(record?.taxonomies).toEqual([
+      {
+        code: '2086S0129X',
+        description: 'Surgery, Vascular Surgery',
+        descriptionSource: 'nucc',
+        primary: true,
+        ...LICENSE,
+      },
+      { code: '208600000X', description: 'Surgery', primary: false, ...LICENSE },
+      {
+        code: '222Z00000X',
+        description: 'Orthotist',
+        descriptionSource: 'nucc',
+        primary: false,
+        ...LICENSE,
+      },
+      { code: '207RX9999X', primary: false, ...LICENSE },
+    ]);
+  });
+});
+
+// ── #44: the taxonomy a row matched the specialty filter through ─────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/44
+
+describe('NppesService.search matched taxonomy (#44)', () => {
+  type Taxonomy = { code: string; desc?: string | null; primary?: boolean };
+
+  /** Search with `taxonomyDescription` (omitted when undefined) over one row holding `taxonomies`. */
+  async function searchOne(taxonomyDescription: string | undefined, taxonomies: Taxonomy[]) {
+    stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1053791517',
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'PAT', last_name: 'PROVIDER', status: 'A' },
+          taxonomies: taxonomies.map((taxonomy) => ({ primary: false, ...taxonomy })),
+        },
+      ],
+    });
+    const [row] = await svc.search(
+      {
+        ...(taxonomyDescription === undefined ? { lastName: 'PROVIDER' } : { taxonomyDescription }),
+        limit: 10,
+        skip: 0,
+      },
+      ctx,
+    );
+    return row;
+  }
+
+  const CARDIOLOGY = { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease' };
+  const HEM_ONC = { code: '207RH0003X', desc: 'Internal Medicine, Hematology & Oncology' };
+  const FAMILY_NP = { code: '363LF0000X', desc: 'Nurse Practitioner, Family' };
+  // The registry's wording; NUCC v26.1 says "Psychiatric/Mental Health".
+  const PSYCH_NP = { code: '363LP0808X', desc: 'Nurse Practitioner, Psych/Mental Health' };
+  // The registry's classification wording; NUCC says "Specialist/Technologist Cardiovascular".
+  const CVIS = {
+    code: '246XC2901X',
+    desc: 'Spec/Tech, Cardiovascular, Cardiovascular Invasive Specialist',
+  };
+  const CARDIOTHORACIC = {
+    code: '208G00000X',
+    desc: 'Thoracic Surgery (Cardiothoracic Vascular Surgery)',
+  };
+
+  it.each<[string, string, Taxonomy[], object]>([
+    [
+      'a non-primary specialization starts with it',
+      'Cardiovascular Disease',
+      [{ ...HEM_ONC, primary: true }, CARDIOLOGY],
+      { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+    ],
+    [
+      'it differs only in case',
+      'cardiovascular disease',
+      [{ ...HEM_ONC, primary: true }, CARDIOLOGY],
+      { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+    ],
+    [
+      'a non-primary classification starts with it, while the primary only contains it',
+      'Surgery',
+      [
+        { code: '204E00000X', desc: 'Oral & Maxillofacial Surgery', primary: true },
+        { code: '208600000X', desc: 'Surgery' },
+      ],
+      { code: '208600000X', description: 'Surgery' },
+    ],
+    [
+      'it matches a null-desc taxonomy through its bundled NUCC text',
+      'Vascular Surgery',
+      [
+        { ...CARDIOTHORACIC, primary: true },
+        { code: '2086S0129X', desc: null },
+      ],
+      { code: '2086S0129X', description: 'Surgery, Vascular Surgery', descriptionSource: 'nucc' },
+    ],
+    [
+      "it matches the registry's specialization wording",
+      'Psych/Mental Health',
+      [{ ...FAMILY_NP, primary: true }, PSYCH_NP],
+      { code: '363LP0808X', description: 'Nurse Practitioner, Psych/Mental Health' },
+    ],
+    [
+      'it matches a specialization that itself holds ", "',
+      'Psych/Mental Health, Adult',
+      [
+        { ...FAMILY_NP, primary: true },
+        { code: '364SP0809X', desc: 'Clinical Nurse Specialist, Psych/Mental Health, Adult' },
+      ],
+      { code: '364SP0809X', description: 'Clinical Nurse Specialist, Psych/Mental Health, Adult' },
+    ],
+    [
+      "it matches the specialization under the registry's own classification wording",
+      'Cardiovascular Invasive Specialist',
+      [{ code: '163W00000X', desc: 'Registered Nurse', primary: true }, CVIS],
+      { code: '246XC2901X', description: CVIS.desc },
+    ],
+    [
+      'it matches the registry\'s classification wording, which holds ", "',
+      'Spec/Tech, Cardio',
+      [{ code: '163W00000X', desc: 'Registered Nurse', primary: true }, CVIS],
+      { code: '246XC2901X', description: CVIS.desc },
+    ],
+    [
+      'several taxonomies pass: the first in registry order',
+      'Internal Medicine',
+      [
+        { code: '207Q00000X', desc: 'Family Medicine', primary: true },
+        CARDIOLOGY,
+        { code: '207R00000X', desc: 'Internal Medicine' },
+      ],
+      { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+    ],
+    [
+      'the primary flag sits on a later taxonomy',
+      'Cardiovascular Disease',
+      [CARDIOLOGY, { ...HEM_ONC, primary: true }],
+      { code: '207RC0000X', description: 'Internal Medicine, Cardiovascular Disease' },
+    ],
+    [
+      'a code the bundled set lacks starts with it as a whole',
+      'Internal',
+      [
+        { code: '207Q00000X', desc: 'Family Medicine', primary: true },
+        { code: '207RX9999X', desc: 'Internal Medicine, Something New' },
+      ],
+      { code: '207RX9999X', description: 'Internal Medicine, Something New' },
+    ],
+  ])('names the matched taxonomy when %s', async (_label, filter, taxonomies, expected) => {
+    const row = await searchOne(filter, taxonomies);
+    expect(row?.matchedTaxonomy).toEqual(expected);
+  });
+
+  it.each<[string, string | undefined, Taxonomy[]]>([
+    [
+      'the primary taxonomy matches',
+      'Cardiovascular Disease',
+      [{ ...CARDIOLOGY, primary: true }, HEM_ONC],
+    ],
+    ['the primary matches by prefix', 'Cardio', [{ ...CARDIOLOGY, primary: true }, CVIS]],
+    [
+      'it is only a later word of a taxonomy (not a prefix)',
+      'Disease',
+      [{ ...HEM_ONC, primary: true }, CARDIOLOGY],
+    ],
+    [
+      'it appears only inside a parenthesis',
+      'Cardiothoracic',
+      [{ ...CARDIOLOGY, primary: true }, CARDIOTHORACIC],
+    ],
+    [
+      'it is the combined "Classification, Specialization" form',
+      'Internal Medicine, Cardiovascular Disease',
+      [{ ...HEM_ONC, primary: true }, CARDIOLOGY],
+    ],
+    [
+      // 246X00000X has no NUCC specialization: its served desc is all classification.
+      'it starts only the text after ", " in a classification-only code’s served classification',
+      'Cardiovascular',
+      [
+        { code: '163W00000X', desc: 'Registered Nurse', primary: true },
+        { code: '246X00000X', desc: 'Spec/Tech, Cardiovascular' },
+      ],
+    ],
+    [
+      'only the NUCC wording, which the registry does not serve, starts with it',
+      'Psychiatric',
+      [{ ...FAMILY_NP, primary: true }, PSYCH_NP],
+    ],
+    ['no taxonomy matches', 'Pediatrics', [{ ...CARDIOLOGY, primary: true }, HEM_ONC]],
+    [
+      'its only candidate is a null-desc code the bundled set lacks',
+      'Internal',
+      [
+        { code: '207Q00000X', desc: 'Family Medicine', primary: true },
+        { code: '207RX9999X', desc: null },
+      ],
+    ],
+    ['the row holds no taxonomies', 'Cardio', []],
+    ['the search has no taxonomy filter', undefined, [{ ...HEM_ONC, primary: true }, CARDIOLOGY]],
+  ])('adds no matchedTaxonomy when %s', async (_label, filter, taxonomies) => {
+    const row = await searchOne(filter, taxonomies);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('matchedTaxonomy');
   });
 });

@@ -13,7 +13,7 @@ export const providerResource = resource('npi://provider/{npi}', {
   name: 'npi-provider',
   title: 'NPI provider record',
   description:
-    "A single provider's decoded NPPES record by NPI number — the resource twin of npi_get_provider for one NPI: the registry's professional-practice data, keeping only LOCATION address rows for individual providers (their mailing address is withheld). Read-only, stable URI, useful as injectable context when an NPI is already known.",
+    'A single provider\'s decoded NPPES record by NPI number — the resource twin of npi_get_provider for one NPI: the registry\'s professional-practice data, keeping only LOCATION address rows for individual providers (their mailing address is withheld). A taxonomy description the registry leaves blank comes from the bundled NUCC code set, marked descriptionSource "nucc". Read-only, stable URI, useful as injectable context when an NPI is already known.',
   mimeType: 'application/json',
   params: z.object({
     npi: z

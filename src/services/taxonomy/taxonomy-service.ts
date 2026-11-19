@@ -6,7 +6,9 @@
  * Loads the generated `taxonomy-data.ts` into an in-memory index once at startup
  * (server-level reference data — not tenant-scoped, no network). Provides the three
  * lookup modes the surface needs: strict-token `resolve` (plain term → codes),
- * exact `get` (by code), and hierarchy `browse`. No external dependency.
+ * exact `get` (by code), and hierarchy `browse`; plus the text that searches the NPPES
+ * registry for a code (`taxonomyDescriptionOf`) and the decode of a `taxonomy_description`
+ * value that names a code or display name (`decodeTaxonomyDescription`). No external dependency.
  */
 
 import { TAXONOMY_ENTRIES } from './taxonomy-data.js';
@@ -112,13 +114,15 @@ function searchableText(words: string[]): string {
 }
 
 /**
- * Generic role nouns that name no NUCC specialty on their own (the vocabulary says
- * "Physician"/"Surgery", never "doctor"), so a plain-language phrase routinely carries
- * one — "heart doctor", "eye doctors" — that would zero the whole strict-AND query.
- * Stripped, singular or plural (see `stopWordOf`), from the *query's required terms* only;
- * the index keeps every word. A stripped word still counts toward ranking: an entry whose
- * own name carries it ("Physician Assistant", "Clinical Nurse Specialist") ranks ahead of
- * siblings (see `selfNameRank`).
+ * Words that name no NUCC specialty on their own, so a plain-language phrase routinely
+ * carries one that would zero the whole strict-AND query: generic role nouns (the vocabulary
+ * says "Physician"/"Surgery", never "doctor" — "heart doctor", "eye doctors"), and the
+ * connective "and", which NUCC mostly writes as "&" and normalization drops ("obstetrics and
+ * gynecology"). Stripped, singular or plural (see `stopWordOf`), from the *query's required
+ * terms* only; the index keeps every word. A stripped word still counts toward ranking: an
+ * entry whose own name carries it ("Physician Assistant", "Clinical Nurse Specialist") ranks
+ * ahead of siblings (see `selfNameRank`), and one whose own name joins the query's words with
+ * "and" ranks ahead of the "&" spellings that stripping "and" lets match (see `connectiveRank`).
  */
 const STOP_WORDS: ReadonlySet<string> = new Set([
   'doctor',
@@ -127,6 +131,7 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
   'provider',
   'md',
   'do',
+  'and',
 ]);
 
 /**
@@ -209,15 +214,25 @@ function tokenizeQuery(s: string): QueryTokens {
  *     "Orthopaedic" spelling, `neurosurgeon` → "Neurological Surgery", `cardiac` →
  *     "Cardiovascular"/"Cardiothoracic", `fertility` → "Infertility"/"Reproductive
  *     Endocrinology".
- *   - Lay terms and abbreviations with no stem in common: `heart`, `eye` (Ophthalmology),
- *     `ent` (Otolaryngology), `kidney`, `cancer`, `obgyn`; phrases `speech therap(y)` →
- *     "Speech-Language Pathologist", `primary care` → Family and Internal Medicine.
- *   - Credential abbreviations: `rn`, `np`, `pa`, `crna`, `lpn`, `lvn`, `emt`, and `er`
- *     (Emergency Medicine), each to the NUCC name of that profession.
+ *   - Lay terms with no stem in common: `heart`, `eye` (Ophthalmology), `kidney`, `cancer`,
+ *     and the body parts and conditions people name a doctor by — `skin`, `stomach`, `lung`,
+ *     `liver`, `bone`, `foot` (Podiatrist), `brain`/`nerve` (Neurology), `ear`/`nose`/`throat`
+ *     (Otolaryngology), `tooth`/`teeth` (Dentist), `arthritis`, `hormone`/`thyroid`,
+ *     `prostate`/`bladder` (Urology); phrases `speech therap(y)` → "Speech-Language
+ *     Pathologist", `primary care` and `pcp` → Family and Internal Medicine, `general
+ *     practitioner` → General Practice, `pain management` → Pain Medicine, `nursing home` →
+ *     the skilled and intermediate-care nursing facilities.
+ *   - Abbreviations: `ent` (Otolaryngology), `obgyn`, `gp`, `gi`, `id` (Infectious Disease),
+ *     `pt`/`ot` (Physical and Occupational Therapist); credentials `rn`, `np`, `pa`, `crna`,
+ *     `lpn`, `lvn`, `emt`, and `er` (Emergency Medicine), each to the NUCC name of that
+ *     profession.
+ * Keys and aliases are written in the stemmed form `stemToken` produces — "infectious" is
+ * `infectiou`, "arthritis" `arthriti` — or they never compare equal to anything.
  * Whole-word matching of the key keeps a short abbreviation from landing inside an
- * unrelated word: bare "ent" reaches Otolaryngology, never "gastroENTerology". Terms whose
- * own word already names their specialty (radiology, neurology, …) need no alias.
- * Deterministic lexical normalization — the same category as the stemming above.
+ * unrelated word: bare "ent" reaches Otolaryngology, never "gastroENTerology"; "ot" never
+ * "OTolaryngology". Terms whose own word already names their specialty (radiology,
+ * neurology, …) need no alias. Deterministic lexical normalization — the same category as
+ * the stemming above.
  */
 const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   cardiolog: ['cardiovascular'],
@@ -234,10 +249,39 @@ const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   ent: ['otolaryngolog'],
   kidney: ['nephrolog', 'renal'],
   cancer: ['oncolog'],
+  skin: ['dermatolog'],
+  stomach: ['gastroenterolog'],
+  lung: ['pulmonary', 'pulmonolog'],
+  liver: ['hepatolog'],
+  bone: ['orthopaedic'],
+  foot: ['podiatr'], // PREFERRED_ENTRIES puts Podiatrist ahead of the physician tier
+  brain: ['neurolog'],
+  nerve: ['neurolog'],
+  ear: ['otolaryngolog'],
+  nose: ['otolaryngolog'],
+  throat: ['otolaryngolog'],
+  tooth: ['dent'],
+  teeth: ['dent'],
+  arthriti: ['rheumatolog'], // stemmed "arthritis"
+  hormone: ['endocrinolog'],
+  thyroid: ['endocrinolog'],
+  prostate: ['urolog'],
+  bladder: ['urolog'],
   obgyn: ['obstetric', 'gynecolog'],
+  gp: ['general practice'],
+  gi: ['gastroenterolog'],
+  id: ['infectiou disease'], // stemmed "infectious disease"
+  pt: ['physical therap'],
+  ot: ['occupational therap'],
   'speech therap': ['speech language patholog'], // "speech therapist"
   'speech therapy': ['speech language patholog'],
   'primary care': ['family medicine', 'internal medicine'],
+  pcp: ['family medicine', 'internal medicine'],
+  'general practitioner': ['general practice'],
+  'pain management': ['pain medicine'],
+  // Skilled Nursing Facility, Nursing Facility/Intermediate Care Facility — a bare
+  // "nursing facility" would also start Nursing Facility Supplies
+  'nursing home': ['skilled nursing', 'nursing facility intermediate'],
   rn: ['registered nurse'],
   np: ['nurse practitioner'],
   pa: ['physic assistant'], // stemmed "physician assistant"
@@ -319,6 +363,9 @@ export const PREFERRED_ENTRIES: Readonly<Record<string, string>> = {
   geriatric: '207RG0300X', // Geriatric Medicine (Internal Medicine), not Geriatric Psychiatry
   pharmac: '183500000X', // Pharmacist, not Clinical Pharmacology (a physician)
   emt: '146N00000X', // Basic Emergency Medical Technician, not the shorter-named Paramedic
+  foot: '213E00000X', // Podiatrist, not Orthopaedic Foot and Ankle Surgery (a physician)
+  hormone: '207RE0101X', // Endocrinology, Diabetes & Metabolism, not Reproductive Endocrinology
+  thyroid: '207RE0101X', // Endocrinology, Diabetes & Metabolism
 };
 
 /**
@@ -356,6 +403,14 @@ interface ResolveHit {
    * 1 otherwise. Inert for queries with no aliased token.
    */
   aliasRank: 0 | 1;
+  /**
+   * 0 when the query says "and" and the entry's own specialty label (specialization, else
+   * classification) spells it too, holding every query term: "Oral and Maxillofacial Surgery"
+   * is the Dentist and Clinic/Center specialization written that way, ahead of the physician
+   * classification NUCC writes "Oral & Maxillofacial Surgery", which matches only because the
+   * stop word "and" is stripped. 1 otherwise, and for every query without "and".
+   */
+  connectiveRank: 0 | 1;
   entry: TaxonomyEntry;
   /** Combined haystack length — shorter (more specific) entries rank first within a tier. */
   haystackLength: number;
@@ -416,26 +471,189 @@ export function describeInactiveEntries(entries: readonly TaxonomyEntry[]): stri
     .join('; ');
 }
 
+/**
+ * The registry's own wording for codes whose NUCC v26.1 text it rejects as a
+ * `taxonomy_description` (error 14), keyed by code. NPPES matches the classification and
+ * specialization text it stores, which for these codes differs from NUCC's: "Psych/Mental
+ * Health" for "Psychiatric/Mental Health", "MilitaryU.S. Coast Guard" with no slash, "Spec/Tech"
+ * for "Specialist/Technologist", and "Hearing  Aid Equipment" with two spaces (the registry
+ * doesn't fold whitespace). Each wording was verified live against rows that hold the code.
+ * Three active codes have NUCC text the registry rejects and no wording of their own found
+ * (`207QD0401X` and `207QB0505X` Diabetology, `146E00000X` Community Paramedic), so they keep
+ * NUCC's text.
+ */
+const REGISTRY_WORDING: Readonly<Record<string, string>> = {
+  '363LP0808X': 'Psych/Mental Health',
+  '163WP0808X': 'Psych/Mental Health',
+  '364SP0808X': 'Psych/Mental Health',
+  '163WP0809X': 'Psych/Mental Health, Adult',
+  '364SP0809X': 'Psych/Mental Health, Adult',
+  '163WP0807X': 'Psych/Mental Health, Child & Adolescent',
+  '364SP0807X': 'Psych/Mental Health, Child & Adolescent',
+  '364SP0810X': 'Psych/Mental Health, Child & Family',
+  '364SP0811X': 'Psych/Mental Health, Chronically Ill',
+  '364SP0812X': 'Psych/Mental Health, Community',
+  '364SP0813X': 'Psych/Mental Health, Geropsychiatric',
+  '207SC0300X': 'Clinical Cytogenetic',
+  '1223D0004X': 'Dentist Anesthesiologist Speciality',
+  '261QM1100X': 'MilitaryU.S. Coast Guard Outpatient',
+  '332000000X': 'MilitaryU.S. Coast Guard Pharmacy',
+  '341800000X': 'MilitaryU.S. Coast Guard Transport',
+  '251T00000X': 'PACE Provider Organization',
+  '246Y00000X': 'Spec/Tech, Health Info',
+  '246Q00000X': 'Spec/Tech, Pathology',
+  '246X00000X': 'Spec/Tech, Cardiovascular',
+  '332S00000X': 'Hearing  Aid Equipment',
+};
+
+/**
+ * The `taxonomy_description` text that searches the registry for an entry: the registry's own
+ * wording where it differs from NUCC's (`REGISTRY_WORDING`), else the specialization, else the
+ * classification. The registry matches a case-insensitive prefix of one taxonomy's
+ * classification or specialization, never the combined form or the display name ("…
+ * Physician"), so the specialization is the narrowest text it accepts for a code. Specialty
+ * resolution and code decoding both send this text.
+ */
+export function taxonomyDescriptionOf(entry: TaxonomyEntry): string {
+  return lookup(REGISTRY_WORDING, entry.code) ?? entry.specialization ?? entry.classification;
+}
+
+/**
+ * An entry's classification and, when it has one, its specialization: the two names the
+ * registry matches a taxonomy on, and the parts of its `Classification, Specialization` text.
+ */
+export function taxonomyNamesOf(entry: TaxonomyEntry): string[] {
+  return entry.specialization
+    ? [entry.classification, entry.specialization]
+    : [entry.classification];
+}
+
+/** A NUCC taxonomy code, upper case: three digits, six letters or digits, `X`. */
+const NUCC_CODE = /^\d{3}[A-Z0-9]{6}X$/;
+
+/** What a `taxonomy_description` value names (`TaxonomyService.decodeTaxonomyDescription`). */
+export type TaxonomyDescriptionDecode =
+  /** An active code or a decodable display name: search with `taxonomyDescription`. */
+  | { entry: TaxonomyEntry; kind: 'decoded'; taxonomyDescription: string }
+  /** Shaped like a NUCC code (`code`, upper case), but no bundled entry has it. */
+  | { code: string; kind: 'unknown_code' }
+  /** A code NUCC marks inactive; `entry.replacedBy` names its replacement when NUCC records one. */
+  | { entry: TaxonomyEntry; kind: 'inactive_code' }
+  /** Neither: search with the value as written, trimmed (`text`). */
+  | { kind: 'free_text'; text: string };
+
+/**
+ * The display names a `taxonomy_description` decodes, lower-cased, each to its active entry.
+ * Left out:
+ *   - a name that is a case-insensitive prefix of any bundled classification or specialization.
+ *     The registry may accept it as written, and decoding it can change a working search:
+ *     "Critical Access Hospital" reaches clinics (Clinic/Center, Critical Access Hospital), its
+ *     decode "Critical Access" reaches hospitals.
+ *   - a name whose active entries would send different texts.
+ * Inactive entries take no part, so an inactive entry never decodes by name.
+ */
+function decodableDisplayNames(entries: readonly TaxonomyEntry[]): Map<string, TaxonomyEntry> {
+  const decodable = new Map<string, TaxonomyEntry>();
+  const conflicting = new Set<string>();
+  for (const entry of entries) {
+    if (entry.status !== 'active') continue;
+    const name = entry.displayName.toLowerCase();
+    const seen = decodable.get(name);
+    if (!seen) decodable.set(name, entry);
+    else if (taxonomyDescriptionOf(seen) !== taxonomyDescriptionOf(entry)) conflicting.add(name);
+  }
+  const bundledNames = [
+    ...new Set(entries.flatMap((e) => taxonomyNamesOf(e).map((n) => n.toLowerCase()))),
+  ];
+  for (const name of decodable.keys()) {
+    if (conflicting.has(name) || bundledNames.some((n) => n.startsWith(name))) {
+      decodable.delete(name);
+    }
+  }
+  return decodable;
+}
+
 /** True when an entry's grouping is the physician (allopathic & osteopathic) grouping. */
 function isPhysicianGrouping(grouping: string): boolean {
   return /allopathic|osteopathic/i.test(grouping);
 }
 
+/** Browse filters: grouping by substring, classification by exact name, and NUCC section. */
+export interface BrowseFilters {
+  classification?: string;
+  grouping?: string;
+  section?: TaxonomySection;
+}
+
+/** A grouping or classification name with the number of entries browse returns for it. */
+export interface NameCount {
+  count: number;
+  name: string;
+}
+
+/**
+ * A normalized grouping or classification name with each standalone "and" dropped. NUCC writes
+ * most two-part names with "&", which normalization turns into a space, and a few with "and";
+ * folding both lets "Allopathic and Osteopathic Physicians" reach "Allopathic & Osteopathic
+ * Physicians" and the reverse. No two NUCC grouping or classification names fold alike, and
+ * none folds to an empty string.
+ */
+function foldAnd(normalized: string): string {
+  return normalized
+    .split(' ')
+    .filter((word) => word !== 'and')
+    .join(' ');
+}
+
+/**
+ * The test a browse `grouping` filter applies to a grouping name: the filter is a
+ * case-insensitive substring of the normalized name, or — when it still names something once
+ * folded — a run of whole words of the folded name. The folded comparison only adds matches,
+ * so "and" spelled for "&" reaches its grouping ("Allopathic and Osteopathic Physicians",
+ * "Speech, Language & Hearing"), while a filter cutting through an "and" ("language an") or a
+ * word beside one ("e and", "and H") keeps exactly its plain match: once "and" is dropped, a
+ * word fragment would match inside almost any name. A bare "and" keeps its substring match
+ * rather than matching everything.
+ */
+function groupingFilter(filter: string): (grouping: string) => boolean {
+  const plain = normalize(filter);
+  const folded = foldAnd(plain);
+  return (grouping) => {
+    const name = normalize(grouping);
+    return name.includes(plain) || (folded !== '' && hasWord(foldAnd(name), folded));
+  };
+}
+
+/** Count entries by one of their names, as `{ name, count }` rows sorted by name. */
+function countBy(
+  entries: readonly TaxonomyEntry[],
+  nameOf: (entry: TaxonomyEntry) => string,
+): NameCount[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const name = nameOf(entry);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** In-memory NUCC taxonomy index with resolve / get / browse. */
 export class TaxonomyService {
   private readonly byCode: Map<string, TaxonomyEntry>;
+  /** Lower-cased display name → the active entry it decodes to (`decodableDisplayNames`). */
+  private readonly byDisplayName: Map<string, TaxonomyEntry>;
   /**
    * Per-entry stemmed match text: the full haystack, and the entry's "own specialty label"
    * (specialization, else classification) used to tell whether a query named *this*
    * specialty vs. only matched via the classification umbrella shared with siblings.
    */
   private readonly searchText: Map<string, SearchText>;
-  private readonly groupings: string[];
 
   constructor(entries: readonly TaxonomyEntry[] = TAXONOMY_ENTRIES) {
     this.byCode = new Map();
     this.searchText = new Map();
-    const groupingSet = new Set<string>();
     for (const e of entries) {
       this.byCode.set(e.code, e);
       // Build the haystack from stemmed tokens so query stems match (e.g. a
@@ -446,9 +664,8 @@ export class TaxonomyService {
         haystackLength: words.join(' ').length,
         self: searchableText(tokenize(e.specialization ?? e.classification)),
       });
-      groupingSet.add(e.grouping);
     }
-    this.groupings = [...groupingSet].sort();
+    this.byDisplayName = decodableDisplayNames(entries);
   }
 
   /** Total number of indexed taxonomy entries. */
@@ -456,9 +673,22 @@ export class TaxonomyService {
     return this.byCode.size;
   }
 
-  /** All distinct top-level groupings, sorted. */
-  listGroupings(): string[] {
-    return [...this.groupings];
+  /**
+   * Each grouping `filters` reach, with the number of entries browse returns in it under
+   * them (inactive codes included), sorted by name. Empty when the filters reach no entry.
+   */
+  listGroupings(filters: BrowseFilters = {}): NameCount[] {
+    return countBy(this.filtered(filters), (e) => e.grouping);
+  }
+
+  /**
+   * Each classification `filters` reach, with the number of entries browse returns for it
+   * under them — the total that `classification: name` with the same filters pages through —
+   * sorted by name. Two names (Legal Medicine, Specialist/Technologist) sit in two groupings
+   * each, so without a grouping filter a row counts both.
+   */
+  listClassifications(filters: BrowseFilters = {}): NameCount[] {
+    return countBy(this.filtered(filters), (e) => e.classification);
   }
 
   /**
@@ -476,13 +706,14 @@ export class TaxonomyService {
    * audit.
    *
    * Ranking is a chain of transparent, rule-based signals (each lowest-first; see
-   * `ResolveHit`): preferred general entry for a bare term (`PREFERRED_ENTRIES`) →
-   * physician grouping → query names the entry's own specialty (a stripped stop word in
-   * that name counts) → alias match (canonical general specialty) → non-pediatric (a
-   * Pediatrics-classified entry counts as pediatric unless the query names pediatrics) →
-   * shorter haystack → code. The net effect: a bare "cardiologist" resolves to
-   * "Cardiovascular Disease Physician", not a cardiology pharmacist, technician, hospital,
-   * or a narrow cardiology sub-specialty. Ranking never changes the match set.
+   * `ResolveHit`): preferred general entry for a bare term (`PREFERRED_ENTRIES`) → the
+   * entry's own specialty spells the query's "and" → physician grouping → query names the
+   * entry's own specialty (a stripped stop word in that name counts) → alias match
+   * (canonical general specialty) → non-pediatric (a Pediatrics-classified entry counts as
+   * pediatric unless the query names pediatrics) → shorter haystack → code. The net effect:
+   * a bare "cardiologist" resolves to "Cardiovascular Disease Physician", not a cardiology
+   * pharmacist, technician, hospital, or a narrow cardiology sub-specialty. Ranking never
+   * changes the match set.
    *
    * `skip` pages the fully-ranked, deterministic result set (`slice(skip, skip + limit)`);
    * ties break down to `code`, so paging never skips or duplicates an entry across calls.
@@ -506,6 +737,7 @@ export class TaxonomyService {
     const preferredCode =
       tokens.length === 1 ? lookup(PREFERRED_ENTRIES, tokens[0] as string) : undefined;
     const pediatricQuery = namesPediatrics(tokens);
+    const spellsAnd = stopWords.includes('and');
     const hits: ResolveHit[] = [];
     const inactiveMatches: TaxonomyEntry[] = [];
     for (const [code, entry] of this.byCode) {
@@ -542,6 +774,7 @@ export class TaxonomyService {
       hits.push({
         entry,
         preferredRank: code === preferredCode ? 0 : 1,
+        connectiveRank: allMatchSelfName && spellsAnd && hasWord(self, 'and') ? 0 : 1,
         tier: isPhysicianGrouping(entry.grouping) ? MatchTier.PhysicianGrouping : MatchTier.Other,
         selfNameRank: allMatchSelfName ? (namesStopWord ? 0 : 1) : 2,
         aliasRank: matchedAnAlias ? 0 : 1,
@@ -556,6 +789,7 @@ export class TaxonomyService {
     hits.sort(
       (a, b) =>
         a.preferredRank - b.preferredRank ||
+        a.connectiveRank - b.connectiveRank ||
         a.tier - b.tier ||
         a.selfNameRank - b.selfNameRank ||
         a.aliasRank - b.aliasRank ||
@@ -575,28 +809,71 @@ export class TaxonomyService {
   }
 
   /**
-   * Browse the hierarchy, optionally filtered by grouping (case-insensitive
-   * substring) and/or NUCC section. Every code is included, inactive ones flagged by
-   * `status`. Entries are returned sorted by code. `skip` pages the
-   * sorted set (`slice(skip, skip + limit)`); the code sort is total, so paging a grouping
-   * larger than a single page never skips or duplicates an entry across calls.
+   * Decode a `taxonomy_description` value, trimmed. A NUCC code in any case decodes to its
+   * entry and `taxonomyDescriptionOf` text, or reports the code unknown or inactive, which no
+   * search should be sent for. An exact display name in any case (inner spacing as NUCC writes
+   * it) decodes the same way, unless the registry may accept it as written
+   * (`decodableDisplayNames`). Anything else is free text.
    */
-  browse(opts: {
-    grouping?: string;
-    section?: TaxonomySection;
-    limit: number;
-    skip?: number;
-  }): TaxonomyEntry[] {
-    const groupingNeedle = opts.grouping ? normalize(opts.grouping) : undefined;
-    const out: TaxonomyEntry[] = [];
-    for (const entry of this.byCode.values()) {
-      if (opts.section && entry.section !== opts.section) continue;
-      if (groupingNeedle && !normalize(entry.grouping).includes(groupingNeedle)) continue;
-      out.push(entry);
+  decodeTaxonomyDescription(value: string): TaxonomyDescriptionDecode {
+    const text = value.trim();
+    const code = text.length === 10 ? text.toUpperCase() : undefined;
+    if (code && NUCC_CODE.test(code)) {
+      const entry = this.byCode.get(code);
+      if (!entry) return { kind: 'unknown_code', code };
+      if (entry.status === 'inactive') return { kind: 'inactive_code', entry };
+      return { kind: 'decoded', entry, taxonomyDescription: taxonomyDescriptionOf(entry) };
     }
-    out.sort((a, b) => a.code.localeCompare(b.code));
+    const entry = this.byDisplayName.get(text.toLowerCase());
+    return entry
+      ? { kind: 'decoded', entry, taxonomyDescription: taxonomyDescriptionOf(entry) }
+      : { kind: 'free_text', text };
+  }
+
+  /**
+   * The active entries whose registry search text (`taxonomyDescriptionOf`) is `text`,
+   * case-insensitively, sorted by code. When the registry finds no taxonomy for such a text
+   * (its error 14), resolving or decoding any of these codes sends that text again.
+   */
+  searchedBy(text: string): TaxonomyEntry[] {
+    const key = text.toLowerCase();
+    return [...this.byCode.values()]
+      .filter((e) => e.status === 'active' && taxonomyDescriptionOf(e).toLowerCase() === key)
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }
+
+  /**
+   * Browse the hierarchy, optionally filtered by grouping, classification, and NUCC section.
+   * Every code is included, inactive ones flagged by `status`. Entries are returned sorted by
+   * code. `skip` pages the sorted set (`slice(skip, skip + limit)`); the code sort is total,
+   * so paging a grouping larger than a single page never skips or duplicates an entry across
+   * calls.
+   *   - `grouping` is a case-insensitive substring; whole words also match with "and" compared
+   *     like "&", without narrowing any plain match (`groupingFilter`).
+   *   - `classification` is a case-insensitive exact name, "and" folded — a substring would let
+   *     "Urology" pull in "Psychiatry & Neurology". A filter that folds to nothing ("&", "and")
+   *     names no classification and matches nothing.
+   */
+  browse(opts: BrowseFilters & { limit: number; skip?: number }): TaxonomyEntry[] {
     const skip = opts.skip ?? 0;
-    return out.slice(skip, skip + opts.limit);
+    return this.filtered(opts)
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .slice(skip, skip + opts.limit);
+  }
+
+  /** The entries browse returns under `filters`, unsorted and unpaged. */
+  private filtered(filters: BrowseFilters): TaxonomyEntry[] {
+    const inGrouping =
+      filters.grouping === undefined ? undefined : groupingFilter(filters.grouping);
+    const classification =
+      filters.classification === undefined ? undefined : foldAnd(normalize(filters.classification));
+    return [...this.byCode.values()].filter(
+      (entry) =>
+        (!filters.section || entry.section === filters.section) &&
+        (inGrouping === undefined || inGrouping(entry.grouping)) &&
+        (classification === undefined ||
+          foldAnd(normalize(entry.classification)) === classification),
+    );
   }
 }
 

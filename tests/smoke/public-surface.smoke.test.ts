@@ -34,8 +34,8 @@ const RESULT = {
 };
 
 beforeAll(() => {
-  initNppesService();
   initTaxonomyService();
+  initNppesService();
   vi.stubGlobal(
     'fetch',
     vi.fn(

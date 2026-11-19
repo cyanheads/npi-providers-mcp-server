@@ -10,8 +10,10 @@
  * ZIP prefix: every US practice address carries a 5- or 9-digit ZIP, so the children
  * of a 2–4 digit prefix (one more digit each) cover it exactly, as do the children of
  * a 6–8 digit ZIP+4 prefix. A 5-digit ZIP cannot be split — its ZIP+4 children miss
- * providers recorded with only the 5 digits — and a non-US address has no numeric
- * ZIP at all.
+ * providers recorded with only the 5 digits. Outside the US the split reaches a
+ * numeric postcode (Australian 6151) until it passes the code's length, as the
+ * children of `6151*` miss a code recorded as exactly 6151, and never reaches a
+ * practice address whose postal code is blank or contains letters.
  */
 
 /** The largest `skip` the registry honors. */

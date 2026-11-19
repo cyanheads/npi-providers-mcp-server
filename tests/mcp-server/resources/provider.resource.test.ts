@@ -10,8 +10,10 @@ import { createWorkerHandler } from '@cyanheads/mcp-ts-core/worker';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { providerResource } from '@/mcp-server/resources/definitions/provider.resource.js';
 import { initNppesService } from '@/services/nppes/nppes-service.js';
+import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 beforeAll(() => {
+  initTaxonomyService();
   initNppesService();
 });
 
@@ -249,5 +251,34 @@ describe('providerResource', () => {
     const settled = await outcome;
     expect(settled).toMatchObject({ error: { code: JsonRpcErrorCode.ServiceUnavailable } });
     expect((settled as { error: McpError }).error.data?.reason).not.toBe('no_record');
+  });
+
+  it('decodes a null-desc taxonomy from NUCC, marked, and keeps a served one verbatim (#43)', async () => {
+    stub([
+      {
+        number: '1073637286',
+        enumeration_type: 'NPI-1',
+        basic: { first_name: 'VASCULAR', last_name: 'SURGEON', status: 'A' },
+        taxonomies: [
+          { code: '2086S0129X', desc: null, primary: true, license: 'MD61452023', state: 'WA' },
+          { code: '208600000X', desc: 'Surgery', primary: false },
+        ],
+      },
+    ]);
+    const record = await providerResource.handler(
+      providerResource.params!.parse({ npi: '1073637286' }),
+      ctx(),
+    );
+    expect(JSON.parse(JSON.stringify(record)).taxonomies).toEqual([
+      {
+        code: '2086S0129X',
+        description: 'Surgery, Vascular Surgery',
+        descriptionSource: 'nucc',
+        primary: true,
+        license: 'MD61452023',
+        state: 'WA',
+      },
+      { code: '208600000X', description: 'Surgery', primary: false },
+    ]);
   });
 });
