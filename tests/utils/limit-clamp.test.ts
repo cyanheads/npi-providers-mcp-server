@@ -17,9 +17,12 @@ vi.mock('@cyanheads/mcp-ts-core/utils', async (importOriginal) => ({
 }));
 
 describe('limit clamp telemetry', () => {
-  it('initializes lazily and records one bounded counter event per call', async () => {
+  it('creates one counter at import and records one bounded counter event per call', async () => {
     const { recordLimitClamp } = await import('@/utils/limit-clamp.js');
-    expect(createCounter).not.toHaveBeenCalled();
+    expect(createCounter).toHaveBeenCalledExactlyOnceWith(
+      'mcp.npi.limit_clamps',
+      'Tool requests whose limit was clamped',
+    );
     const ctx = createMockContext();
     vi.spyOn(ctx.log, 'notice');
     const events = [
