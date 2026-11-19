@@ -35,7 +35,7 @@ The US healthcare provider directory from the NPI Registry. Search doctors and o
 
 | Tool | Description |
 |:---|:---|
-| `npi_search_providers` | Search the NPPES registry by name, organization, location, provider type, and specialty. Plain-language specialties resolve through the bundled NUCC taxonomy before searching. |
+| `npi_search_providers` | Search the NPPES registry by name, organization, an organization's authorized official, location, provider type, and specialty. Plain-language specialties resolve through the bundled NUCC taxonomy before searching. |
 | `npi_get_provider` | Fetch the NPPES professional-practice record for up to 10 NPIs — taxonomies, practice addresses, credentials, identifiers, endpoints, and status. Only LOCATION address rows are kept for individual providers. |
 | `npi_lookup_taxonomy` | Resolve, fetch, or browse the NUCC Healthcare Provider Taxonomy — fully offline. |
 
@@ -54,24 +54,24 @@ The bundled `npi-providers-guide` skill is available at `skill://npi-providers-g
 
 ### `npi_search_providers` <sub>tool</sub>
 
-- Inputs: `name_search` or `first_name` / `last_name` (individuals), `organization_name` (organizations), `provider_type`, `city` / `state` / `postal_code` (practice addresses only), and a plain-language `specialty` resolved through the bundled NUCC taxonomy, or an exact `taxonomy_description` (never both). At least one criterion is required, state alone is rejected, and individual and organization criteria can't be mixed. A trailing `*` needs at least 2 leading characters; `postal_code` takes 5 or 9 digits or a 2–9 digit prefix ending in `*`. Positive `limit` (clamped to 200, default 10), `skip` 0–1000. Optional `use_first_name_alias` controls upstream first-name variants; omitted defaults to true for a non-wildcard first name. When supplied for a wildcard/no-first-name search, the option is reported as inapplicable
-- Output: compact rows (`npi`, name, primary taxonomy, primary practice `city` / `state` / `postalCode`, `status`), with `matchedLocation` / `matchedOtherName` naming the practice location or other name a row matched through, and `resolvedTaxonomies` / `appliedTaxonomyDescription` echoing the specialty resolution. `appliedFirstNameAlias` reports the effective boolean only for a non-wildcard first name. No true total is reported: a full page names `nextPage`, and the terminal window (`skip` 1000, `limit` 200) returns `continuationPostalCodes` that continue the search
-- Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `mixed_provider_criteria`, `unresolved_specialty`, `invalid_search_field`
+- Inputs: `name_search` or `first_name` / `last_name` (individuals, or organizations' authorized officials with `name_role: "authorized_official"`, which requires a first or last name), `organization_name` (organizations), `provider_type`, `city` / `state` / `postal_code` (practice addresses only), and a plain-language `specialty` resolved through the bundled NUCC taxonomy, or a `taxonomy_description`: a NUCC code, an exact display name, or the registry's description text (never together with `specialty`). A display name that is itself the start of a NUCC classification or specialization (`Critical Access Hospital`) is sent as written, and an unknown or inactive code is refused before any request. At least one criterion is required, state alone is rejected, and individual and organization criteria can't be mixed. A trailing `*` needs at least 2 leading characters. `postal_code` takes a 5-digit ZIP, `ddddd-dddd` (sent as 9 digits), or a 2–9 digit prefix ending in `*`; any other 2–4 or 6–8 digit string is matched exactly, and a lettered code matches only some providers recorded with it, so search those by `city`. Positive `limit` (clamped to 200, default 10), `skip` 0–1000. Optional `use_first_name_alias` controls upstream first-name variants; omitted defaults to true for a non-wildcard first name. When supplied for a wildcard/no-first-name search, the option is reported as inapplicable
+- Output: compact rows (`npi`, name, primary taxonomy, primary practice `city` / `state` / `postalCode`, `status`), with `matchedLocation` / `matchedOtherName` / `matchedTaxonomy` naming the practice location, other name, or non-primary taxonomy a row matched through (rendered **Matched specialty**), and `resolvedTaxonomies` / `appliedTaxonomyDescription` echoing the specialty resolution. A primary taxonomy the registry serves without a description is filled from NUCC and marked `descriptionSource: "nucc"`. Authorized-official searches add `authorizedOfficial` (`name`, `title`) to each row. `appliedFirstNameAlias` reports the effective boolean only for a non-wildcard first name. No true total is reported: a full page names `nextPage`, and the terminal window (`skip` 1000, `limit` 200) returns `continuationPostalCodes` that continue the search
+- Typed error reasons: `no_search_criteria`, `conflicting_specialty`, `mixed_provider_criteria`, `official_name_required`, `unresolved_specialty`, `unmatched_taxonomy_description`, `invalid_search_field`
 
 ---
 
 ### `npi_get_provider` <sub>tool</sub>
 
 - Accepts `npis`: a single NPI or up to 100 raw entries, each exactly 10 digits. Deduplicates, checks every check digit, then looks up the first 10 distinct valid NPIs; optional `unprocessed` lists the remaining valid NPIs in order. With `NPI_CLAMP_LIMITS=false`, the raw array maximum is 10
-- Partitions the batch into `found` (decoded records: taxonomies with license, practice addresses, credential, identifiers, FHIR/Direct endpoints, status — only LOCATION address rows for individual providers, so their mailing address is withheld), `notFound` (confirmed absence), `errored` (upstream failure — retry these), and `invalid` (failed the check digit, never looked up)
+- Partitions the batch into `found` (decoded records: taxonomies with license (a taxonomy description the registry serves blank comes from NUCC, marked `descriptionSource: "nucc"`), practice addresses, credential, identifiers, FHIR/Direct endpoints, status — only LOCATION address rows for individual providers, so their mailing address is withheld), `notFound` (confirmed absence), `errored` (upstream failure — retry these), and `invalid` (failed the check digit, never looked up)
 - Typed error reasons: `invalid_npi_format` (every NPI failed the check digit), `none_found` (every NPI looked up is a confirmed absence); an upstream failure surfaces as that underlying error instead. Error messages and structured error data retain every invalid NPI and any unprocessed remainder
 
 ---
 
 ### `npi_lookup_taxonomy` <sub>tool</sub>
 
-- Modes: `resolve` (`query` → matching active codes), `get` (exact `code` → full entry with NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by `grouping` and NUCC `section`). Section describes the taxonomy category, not a provider's NPI entity type; use search's `provider_type` for that. `resolve` / `browse` take positive `limit` (clamped to 50, default 20) and `skip` (0–1000) and disclose `truncated`; wrong-mode arguments are rejected before defaults apply
-- Every entry carries `status` (`active` / `inactive`) and an inactive code's `replacedBy`; `resolve` excludes inactive codes, while `get` and `browse` return them. A resolved entry's `specialization` (or `classification` when absent) is the exact value `npi_search_providers.taxonomy_description` accepts
+- Modes: `resolve` (`query` → matching active codes), `get` (exact `code` → full entry with NUCC's `notes`), `browse` (walk grouping → classification → specialization, filterable by `grouping`, an exact `classification` name, and NUCC `section`; the first page lists the groupings the filters reach with entry counts, plus that grouping's classifications when they reach exactly one). Section describes the taxonomy category, not a provider's NPI entity type; use search's `provider_type` for that. `resolve` / `browse` take positive `limit` (clamped to 50, default 20) and `skip` (0–1000) and disclose `truncated`; wrong-mode arguments are rejected before defaults apply
+- Every entry carries `status` (`active` / `inactive`) and an inactive code's `replacedBy`; `resolve` excludes inactive codes, while `get` and `browse` return them. A resolved entry's `specialization` (or `classification` when absent) is the text `npi_search_providers` sends as the description, except for 21 codes the registry words differently (`363LP0808X` is sent as `Psych/Mental Health`); the code itself is also accepted as `npi_search_providers.taxonomy_description`
 - Definitions and notes contain readable line breaks and list bullets in place of NUCC HTML markup; literal markers and source text remain intact
 - Typed error reasons: `no_match`, `missing_argument`, `wrong_mode_argument`
 
@@ -159,7 +159,7 @@ See [`.env.example`](./.env.example) for the full list of optional overrides.
 
 ### Local development
 
-Requires [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+). The NPPES registry is keyless and the NUCC taxonomy is bundled.
+Requires [Bun v1.4.4](https://bun.sh/) or higher (or Node.js v24+). The NPPES registry is keyless and the NUCC taxonomy is bundled.
 
 - **Clone and install:**
 
