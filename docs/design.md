@@ -117,7 +117,7 @@ NPPES is effectively a single endpoint, so the noun√óoperation grid is shallow ‚
 | `246X00000X` | `Specialist/Technologist Cardiovascular` | `Spec/Tech, Cardiovascular` |
 | `332S00000X` | `Hearing Aid Equipment` | `Hearing  Aid Equipment` (two spaces) |
 
-Three codes have no registry text on record, so their NUCC text is sent unchanged and the registry may answer error `14`: `207QD0401X`, `207QB0505X` (Diabetology), and `146E00000X` (Community Paramedic). That error carries its own recovery: for a code with a specialization (`207QD0401X`, `207QB0505X`) it names the code's classification to search instead (Internal Medicine, Family Medicine), and for a classification-only code (`146E00000X`) it routes to `npi_lookup_taxonomy` mode `browse` of the code's grouping.
+Three codes have no registry text on record, so their NUCC text is sent unchanged and the registry may answer error `14`: `207QD0401X`, `207QB0505X` (Diabetology), and `146E00000X` (Community Paramedic). That error carries its own recovery: for a code with a specialization it names the code's classification to search instead (Family Medicine for `207QD0401X`, Internal Medicine for `207QB0505X`), and for a classification-only code (`146E00000X`) it routes to `npi_lookup_taxonomy` mode `browse` of the code's grouping.
 
 **Confirmed record shape** (`results[]` element):
 
