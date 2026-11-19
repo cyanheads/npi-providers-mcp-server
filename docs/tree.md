@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-10-26 06:51:50
+Generated on: 2026-11-19 14:05:54
 
 ```text
 npi-providers-mcp-server/
@@ -165,6 +165,7 @@ npi-providers-mcp-server/
 │   │   ├── nppes/
 │   │   │   ├── nppes-service.ts
 │   │   │   ├── other-name-match.ts
+│   │   │   ├── taxonomy-match.ts
 │   │   │   └── types.ts
 │   │   └── taxonomy/
 │   │       ├── data/
@@ -193,7 +194,6 @@ npi-providers-mcp-server/
 │   ├── prompts/
 │   ├── resources/
 │   ├── scripts/
-│   │   ├── mcpb-runtime-skills.test.ts
 │   │   └── nucc-taxonomy-csv.test.ts
 │   ├── services/
 │   │   ├── nppes/

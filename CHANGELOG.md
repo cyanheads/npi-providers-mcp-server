@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.5.1](changelog/0.5.x/0.5.1.md) — 2026-11-19
+
+Authorized-official search, NUCC codes in taxonomy_description, matched-taxonomy and NUCC description fields, browse listings, and postal-code and specialty-resolution fixes.
+
 ## [0.5.0](changelog/0.5.x/0.5.0.md) — 2026-10-25
 
 Provider query controls and specialty guidance
