@@ -214,7 +214,8 @@ src/
       data/nucc_taxonomy_261.csv              # Source CSV (v26.1); regenerate taxonomy-data.ts from it
   mcp-server/
     npi-check-digit.ts                        # NPI check digit (Luhn over 80840 + NPI) — shared by the NPI tool and resource
-    search-window.ts                          # 1200-match window: next page, postal-prefix continuation
+    search-window.ts                          # 1200-match window: next page, postal_code continuation (exact value + prefixes)
+    heading-text.ts                           # ATX heading text: line breaks collapsed, then Markdown-escaped
     tools/definitions/
       search-providers.tool.ts                # npi_search_providers
       get-provider.tool.ts                    # npi_get_provider

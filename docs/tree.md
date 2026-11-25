@@ -1,6 +1,6 @@
 # npi-providers-mcp-server - Directory Structure
 
-Generated on: 2026-11-19 14:05:54
+Generated on: 2026-11-25 18:56:44
 
 ```text
 npi-providers-mcp-server/
@@ -159,6 +159,7 @@ npi-providers-mcp-server/
 │   │   │       ├── get-provider.tool.ts
 │   │   │       ├── lookup-taxonomy.tool.ts
 │   │   │       └── search-providers.tool.ts
+│   │   ├── heading-text.ts
 │   │   ├── npi-check-digit.ts
 │   │   └── search-window.ts
 │   ├── services/
@@ -178,7 +179,10 @@ npi-providers-mcp-server/
 │   └── index.ts
 ├── tests/
 │   ├── fuzz/
+│   │   ├── format-readback.fuzz.test.ts
 │   │   └── nppes-response.fuzz.test.ts
+│   ├── helpers/
+│   │   └── markdown-readback.ts
 │   ├── integration/
 │   │   ├── correctness-boundaries.integration.test.ts
 │   │   ├── nppes-live.integration.test.ts
