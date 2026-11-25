@@ -7,15 +7,20 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { headingText } from '@/mcp-server/heading-text.js';
 import { MAX_LIMIT, MAX_SKIP, nextPage, postalContinuation } from '@/mcp-server/search-window.js';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
 import type { NppesSearchParams, ProviderLocation } from '@/services/nppes/types.js';
 import {
   describeInactiveEntries,
   getTaxonomyService,
+  resolvedCodeSet,
+  specialtyCandidates,
   stopWordOnlyQuery,
   taxonomyDescriptionOf,
 } from '@/services/taxonomy/taxonomy-service.js';
+import type { TaxonomyEntry } from '@/services/taxonomy/types.js';
 import { recordLimitClamp } from '@/utils/limit-clamp.js';
 
 /** Heuristically split a single name string into first/last parts. */
@@ -51,14 +56,18 @@ const LETTERED_POSTAL_CODE = /[A-Za-z]/;
  * (the registry stores some lettered codes in lowercase and returns them for an
  * uppercase request). A trailing-`*` request is a prefix the row's ZIP must start
  * with — as upstream, so a row recorded with only a 5-digit ZIP never matches a ZIP+4
- * prefix. An exact request tolerates the 5-digit vs 9-digit ZIP+4 split: the shorter
- * value must be a prefix of the longer.
+ * prefix. A 2–4 or 6–8 digit request matches only a code with exactly those digits, as
+ * upstream (`EXACT_PARTIAL_ZIP`), so a row whose primary practice is ZIP 615178022 and
+ * whose other practice is postcode 6151 matches `6151` on the other one. Any other exact
+ * request tolerates the 5-digit vs 9-digit ZIP+4 split: the shorter value must be a
+ * prefix of the longer.
  */
 function postalCodeMatches(rowPostal: string | undefined, requested: string): boolean {
   const row = rowPostal?.trim().toUpperCase() ?? '';
   const req = requested.trim().toUpperCase();
   if (!row || !req) return false;
   if (req.endsWith('*')) return row.startsWith(req.slice(0, -1));
+  if (EXACT_PARTIAL_ZIP.test(req)) return row === req;
   return row.length <= req.length ? req.startsWith(row) : row.startsWith(req);
 }
 
@@ -72,8 +81,8 @@ function cityMatches(rowCity: string | undefined, requested: string): boolean {
 
 /**
  * Whether one location satisfies every requested field on its own, case-insensitively:
- * state and city by equality, postal code by ZIP/ZIP+4 prefix, and a trailing `*` on
- * city or postal code as a prefix. An empty request matches every location.
+ * state and city by equality, postal code as `postalCodeMatches` reads it, and a trailing
+ * `*` on city or postal code as a prefix. An empty request matches every location.
  */
 function locationMatches(location: ProviderLocation, requested: ProviderLocation): boolean {
   if (requested.state && location.state?.toUpperCase() !== requested.state.toUpperCase()) {
@@ -88,24 +97,29 @@ function locationMatches(location: ProviderLocation, requested: ProviderLocation
   return true;
 }
 
-/** Render a location as `City, ST 12345`, omitting absent parts. */
+/** Render a location as `City, ST 12345`, omitting absent parts, as escaped Markdown. */
 function renderLocation(location: {
   city?: string | undefined;
   postalCode?: string | undefined;
   state?: string | undefined;
 }): string {
   const cityState = [location.city, location.state].filter(Boolean).join(', ');
-  return [cityState, location.postalCode].filter(Boolean).join(' ');
+  return escapeMarkdownInline([cityState, location.postalCode].filter(Boolean).join(' '));
 }
 
-/** Render a taxonomy as `Description (code)`, naming a description filled from NUCC. */
+/**
+ * Render a taxonomy as `Description (code)`, naming a description filled from NUCC, as
+ * escaped Markdown. The text is escaped as one run with its authored parentheses, so a
+ * code can't complete syntax with them (`&amp` before `; description`, a last line of
+ * digits before `)`).
+ */
 function renderTaxonomy(taxonomy: {
   code: string;
   description?: string | undefined;
   descriptionSource?: 'nucc' | undefined;
 }): string {
   const source = taxonomy.descriptionSource === 'nucc' ? '; description from NUCC' : '';
-  return `${taxonomy.description ?? 'Unknown'} (${taxonomy.code}${source})`;
+  return escapeMarkdownInline(`${taxonomy.description ?? 'Unknown'} (${taxonomy.code}${source})`);
 }
 
 const TaxonomyReferenceSchema = z.object({
@@ -184,7 +198,7 @@ const ProviderRowSchema = z
         'The other (former, professional, DBA, or alternate) name this row matched the name search through. Present only when the current name fails a requested last_name, organization_name, or wildcard first_name and this other name satisfies it (case-insensitive, ignoring punctuation and spaces, trailing "*" as a prefix). An exact first_name alone never marks a row: the registry also matches first-name variants (Bob for Robert). Under name_role "authorized_official" only organization_name can mark a row, since the official\'s name is matched against the official alone.',
       ),
     matchedTaxonomy: TaxonomyReferenceSchema.optional().describe(
-      "The taxonomy this row matched the specialty filter through: the first of its taxonomies whose classification or specialization starts with appliedTaxonomyDescription (case-insensitive, in the registry's wording), as the registry matches. Present only when primaryTaxonomy does not match and another taxonomy does. It names the taxonomy whose text matched, which need not be the code the specialty resolved to.",
+      "The taxonomy this row matched the specialty filter through, present only when primaryTaxonomy does not match and another taxonomy does. When the search resolved taxonomies (resolvedTaxonomies), it is the first of the row's taxonomies holding a resolved code, a classification-level code counting every code of its classification, including a code newer than the bundled NUCC set as resolvedTaxonomies describes. When taxonomy_description was sent as written, it is the first whose classification or specialization starts with appliedTaxonomyDescription (case-insensitive, in the registry's wording), as the registry matches.",
     ),
     status: z
       .enum(['active', 'deactivated'])
@@ -196,7 +210,7 @@ const ProviderRowSchema = z
 export function createSearchProvidersTool(clampLimits: boolean) {
   return tool('npi_search_providers', {
     description:
-      'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s search text becomes taxonomy_description, and all resolved candidates are returned in metadata. taxonomy_description also takes a NUCC code, such as one npi_get_provider returns, and searches with that code\'s text. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. With name_role "authorized_official", first_name, last_name, and name_search match each organization\'s authorized official instead of the provider, the search covers organizations only, and each row names the official in authorizedOfficial. At least one search criterion is required, and the registry rejects state-only searches. When city/state/postal_code are given, only practice addresses are searched, never mailing addresses: a provider is returned only when its primary practice location or one of its other practice locations matches all of them. A provider kept on another practice location names it in matchedLocation. A specialty filter matches any of a provider\'s taxonomies, as a case-insensitive prefix of the taxonomy\'s classification or specialization; a row matched through a taxonomy other than its primary names it in matchedTaxonomy. Name searches also match former and other names, sorted by current name; such a row names the matching name in matchedOtherName. The registry never reports a true match total, and one search reaches only its first 1200 matches: a full page names the next in nextPage, and the terminal window (skip 1000, limit 200) returns continuationPostalCodes, postal_code prefixes that continue the search.',
+      'Search the NPPES NPI registry for individual practitioners and healthcare organizations by name, organization name, location, provider type, and specialty. Plain-language specialty terms (e.g. "cardiologist", "pediatric cardiologist") resolve through the bundled NUCC taxonomy; the top match\'s search text becomes taxonomy_description, and all resolved candidates are returned in metadata. taxonomy_description also takes a NUCC code, such as one npi_get_provider returns, and searches with that code\'s text. Location belongs in the dedicated city/state/postal_code inputs, not inside specialty. Each provider row includes the NPI, name, primary specialty, city/state/ZIP, type, and active/deactivated status; the NPI is the input for npi_get_provider when the full record is needed. With name_role "authorized_official", first_name, last_name, and name_search match each organization\'s authorized official instead of the provider, the search covers organizations only, and each row names the official in authorizedOfficial. At least one search criterion is required, and the registry rejects state-only searches. When city/state/postal_code are given, only practice addresses are searched, never mailing addresses: a provider is returned only when its primary practice location or one of its other practice locations matches all of them. A provider kept on another practice location names it in matchedLocation. A specialty filter matches any of a provider\'s taxonomies, as a case-insensitive prefix of the taxonomy\'s classification or specialization; text from a resolved specialty or a decoded code returns only rows holding a code in resolvedTaxonomies (a classification-level code counts its whole classification, and a code newer than the bundled NUCC set counts only toward a classification-level code of its classification), and a row matched through a taxonomy other than its primary names it in matchedTaxonomy. Name searches also match former and other names, sorted by current name; such a row names the matching name in matchedOtherName. The registry never reports a true match total, and one search reaches only its first 1200 matches: a full page names the next in nextPage, and the terminal window (skip 1000, limit 200) returns continuationPostalCodes, the postal_code values that continue the search.',
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
     errors: [
@@ -302,13 +316,13 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         .string()
         .optional()
         .describe(
-          'Plain-language specialty (e.g. "pediatric cardiologist"), resolved through the bundled NUCC taxonomy to exact descriptions before searching. Codes NUCC marks inactive are never resolved. The resolved taxonomy is echoed in the result. Mutually exclusive with taxonomy_description.',
+          'Plain-language specialty (e.g. "pediatric cardiologist"), resolved through the bundled NUCC taxonomy to exact descriptions before searching. Codes NUCC marks inactive are never resolved. The resolved taxonomies are echoed in resolvedTaxonomies, and only rows holding one of their codes (a classification-level code counting every code of its classification) are returned, since the text sent also matches other codes that start with it (e.g. Family Medicine for "family nurse practitioner"). A code newer than the bundled NUCC set counts only toward a classification-level code of its classification, as resolvedTaxonomies describes. Mutually exclusive with taxonomy_description.',
         ),
       taxonomy_description: z
         .string()
         .optional()
         .describe(
-          'A NUCC taxonomy code in any case (e.g. "207RC0000X", as npi_get_provider returns it) or taxonomy text. A code searches with that code\'s text, named in resolvedTaxonomies, and so does a NUCC display name such as "Cardiovascular Disease Physician" unless it is itself the start of a NUCC classification or specialization (e.g. "Critical Access Hospital"); a code the bundled NUCC set lacks or marks inactive is rejected before searching. Other text goes to the registry as written. The registry matches the text sent as a case-insensitive prefix of each taxonomy\'s classification or specialization, so a classification code (e.g. "207R00000X", Internal Medicine) also reaches its specializations. Mutually exclusive with specialty.',
+          'A NUCC taxonomy code in any case (e.g. "207RC0000X", as npi_get_provider returns it) or taxonomy text. A code searches with that code\'s text, named in resolvedTaxonomies, and so does a NUCC display name such as "Cardiovascular Disease Physician" unless it is itself the start of a NUCC classification or specialization (e.g. "Critical Access Hospital"); a code the bundled NUCC set lacks or marks inactive is rejected before searching. Other text goes to the registry as written. The registry matches the text sent as a case-insensitive prefix of each taxonomy\'s classification or specialization, so a classification code (e.g. "207R00000X", Internal Medicine) also reaches its specializations. A decoded code or display name returns only rows holding that code, or for a classification code any code of its classification (a code newer than the bundled NUCC set included, as resolvedTaxonomies describes), since the text also reaches other codes that start with it; text sent as written is never filtered. Mutually exclusive with specialty.',
         ),
       city: z
         .string()
@@ -384,7 +398,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         )
         .optional()
         .describe(
-          "The taxonomies the search resolved: candidates ranked for a specialty term, or the one code a taxonomy_description code or display name decoded to. The first supplies appliedTaxonomyDescription; pass another candidate's code as taxonomy_description to search it instead. Absent when taxonomy_description was sent as written.",
+          'The taxonomies the search resolved: for a specialty term, the top five ranked candidates plus every later one that sends the first one\'s text at its level (specialization or classification); for a taxonomy_description code or display name, the one code it decoded to. The first supplies appliedTaxonomyDescription; pass another candidate\'s code as taxonomy_description to search it instead. Only rows holding one of these codes are returned, a classification-level code counting every code of its classification. A code newer than the bundled NUCC set counts only when its description is the classification of a classification-level code among these, alone or followed by ", " and a specialization, and its first four characters are those of a code that counts; with no classification-level code among these, no new code counts. Absent when taxonomy_description was sent as written.',
         ),
       appliedTaxonomyDescription: z
         .string()
@@ -396,7 +410,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         .boolean()
         .optional()
         .describe(
-          'True when the NPPES page contained at least cap providers before location constraints were applied; more may match even when shown is below cap.',
+          'True when the NPPES page contained at least cap providers before the location and resolved-code filters ran; more may match even when shown is below cap, or 0.',
         ),
       shown: z.number().optional().describe('Number of providers returned.'),
       cap: z.number().optional().describe('The limit that was applied.'),
@@ -410,16 +424,22 @@ export function createSearchProvidersTool(clampLimits: boolean) {
           'The next page: re-run the same arguments with this skip and limit. Present after a full page while rows remain reachable. When skip + limit passes 1000 it is skip 1000, limit 200, whose leading rows repeat rows already returned (the notice says how many) — dedupe by NPI.',
         ),
       continuationPostalCodes: z
-        .array(z.string().describe('A trailing-"*" postal_code prefix.'))
+        .array(
+          z
+            .string()
+            .describe(
+              'A postal_code to re-run with: a trailing-"*" prefix, or the digits of the prefix being split without "*".',
+            ),
+        )
         .optional()
         .describe(
-          'Present only at the terminal window (a full page at skip 1000, limit 200): postal_code prefixes that continue the same search, each re-run from skip 0 with the same arguments — the notice gives the full procedure. Empty when no postal split remains (postal_code is already a 5-digit ZIP, a full ZIP+4, or not a numeric ZIP prefix).',
+          'Present only at the terminal window (a full page at skip 1000, limit 200): postal_code values that continue the same search, each re-run from skip 0 with the same arguments — the notice gives the full procedure. Splitting a 2–4 or 6–8 digit prefix lists the prefix\'s digits without "*" first, which match only a postal code recorded with exactly those digits, then its ten one-digit-longer prefixes. Empty when no postal split remains (postal_code is already a 5-digit ZIP, a full ZIP+4, an exact 2–4 or 6–8 digit value, or not a numeric ZIP prefix).',
         ),
       notice: z
         .string()
         .optional()
         .describe(
-          'Guidance — the page-size-not-total caveat, the next page or terminal-window continuation procedure, other-name, matched-taxonomy, and location-filter counts, a lettered postal_code\'s partial matching, or how to broaden an empty result (for an exactly matched partial ZIP, its trailing-"*" form).',
+          'Guidance — the page-size-not-total caveat, the next page or terminal-window continuation procedure, other-name, matched-taxonomy, location-filter, and resolved-code-filter counts, a lettered postal_code\'s partial matching, or how to broaden an empty result (for an exactly matched partial ZIP, its trailing-"*" form).',
         ),
     },
 
@@ -430,7 +450,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
       resolvedTaxonomies: {
         render: (taxes) =>
           taxes && taxes.length > 0
-            ? `**Resolved specialty →** ${taxes.map((t) => `${t.description} (${t.code})`).join(', ')}`
+            ? `**Resolved specialty →** ${escapeMarkdownInline(taxes.map((t) => `${t.description} (${t.code})`).join(', '))}`
             : '',
       },
       nextPage: {
@@ -498,7 +518,8 @@ export function createSearchProvidersTool(clampLimits: boolean) {
 
       // Resolve specialty → taxonomy_description, or decode / pass through taxonomy_description.
       let taxonomyDescription: string | undefined;
-      let resolvedTaxonomies: { code: string; description: string }[] | undefined;
+      // The taxonomies the filter text comes from: a specialty's candidates, or a decoded code.
+      let resolved: TaxonomyEntry[] | undefined;
       if (input.specialty?.trim()) {
         // "doctor", "M.D.", "specialist" alone name no specialty; point at browse.
         const stopWordsOnly = stopWordOnlyQuery(input.specialty);
@@ -516,8 +537,11 @@ export function createSearchProvidersTool(clampLimits: boolean) {
             },
           );
         }
-        const taxonomy = getTaxonomyService();
-        const { matches: hits, inactiveMatches } = taxonomy.resolveWithInactive(input.specialty, 5);
+        const { matches: hits, inactiveMatches } = specialtyCandidates(
+          getTaxonomyService(),
+          input.specialty,
+          5,
+        );
         if (hits.length === 0) {
           const inactive = describeInactiveEntries(inactiveMatches);
           throw ctx.fail(
@@ -527,19 +551,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
               : `Specialty "${input.specialty}" matched no NUCC taxonomy.`,
           );
         }
-        /**
-         * The NPPES API matches `taxonomy_description` as a case-insensitive prefix of a
-         * taxonomy's classification or specialization, in its own wording — NOT the combined
-         * description or the NUCC display name (which carries a "... Physician" suffix the
-         * API rejects). Send the top match's search text (`taxonomyDescriptionOf`); echo all
-         * candidates with their codes so alternate candidates remain selectable through
-         * taxonomy_description.
-         */
-        resolvedTaxonomies = hits.map((h) => ({
-          code: h.code,
-          description: taxonomyDescriptionOf(h),
-        }));
-        taxonomyDescription = resolvedTaxonomies[0]?.description;
+        resolved = hits;
       } else if (input.taxonomy_description?.trim()) {
         /**
          * A NUCC code, or a display name that starts no bundled classification or
@@ -573,15 +585,24 @@ export function createSearchProvidersTool(clampLimits: boolean) {
             },
           );
         }
-        if (decoded.kind === 'decoded') {
-          taxonomyDescription = decoded.taxonomyDescription;
-          resolvedTaxonomies = [
-            { code: decoded.entry.code, description: decoded.taxonomyDescription },
-          ];
-        } else {
-          taxonomyDescription = decoded.text;
-        }
+        if (decoded.kind === 'decoded') resolved = [decoded.entry];
+        else taxonomyDescription = decoded.text;
       }
+      /**
+       * The NPPES API matches `taxonomy_description` as a case-insensitive prefix of a
+       * taxonomy's classification or specialization, in its own wording — NOT the combined
+       * description or the NUCC display name (which carries a "... Physician" suffix the
+       * API rejects). Send the first resolved taxonomy's search text (`taxonomyDescriptionOf`);
+       * echo all with their codes so alternate candidates remain selectable through
+       * taxonomy_description. The text also reaches every other code that starts with it, so
+       * `taxonomyCodes` filters the rows (below).
+       */
+      const resolvedTaxonomies = resolved?.map((entry) => ({
+        code: entry.code,
+        description: taxonomyDescriptionOf(entry),
+      }));
+      if (resolvedTaxonomies) taxonomyDescription = resolvedTaxonomies[0]?.description;
+      const taxonomyCodes = resolved && resolvedCodeSet(getTaxonomyService(), resolved);
 
       // Provider type: explicit input, or implied by organization_name or an official search.
       let enumerationType: 'NPI-1' | 'NPI-2' | undefined;
@@ -622,6 +643,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         ...(officialSearch ? { namePurpose: 'AO' as const } : {}),
         ...(organizationName ? { organizationName } : {}),
         ...(taxonomyDescription ? { taxonomyDescription } : {}),
+        ...(taxonomyCodes ? { taxonomyCodes } : {}),
         ...(city ? { city } : {}),
         ...(state ? { state } : {}),
         ...(postalCode ? { postalCode } : {}),
@@ -659,12 +681,26 @@ export function createSearchProvidersTool(clampLimits: boolean) {
       });
       const filteredOut = rawCount - providersInLocation.length;
 
+      /**
+       * Text from resolved taxonomies also reaches every other code that starts with it
+       * (Family Medicine for a family nurse practitioner's "Family", physician Pediatrics
+       * for a pediatric nurse practitioner's "Pediatrics"), so keep only the rows holding a
+       * resolved code, a classification-level one also counting a code newer than the bundled
+       * NUCC set of its classification (`matchesResolvedTaxonomies`, decided by the NPPES
+       * service). Text sent as written is never filtered. Runs on the location filter's
+       * survivors, so each dropped row counts against the filter that dropped it.
+       */
+      const providersShown = providersInLocation.flatMap(({ matchesResolvedTaxonomies, ...row }) =>
+        !taxonomyCodes || matchesResolvedTaxonomies ? [row] : [],
+      );
+      const holdingNoResolvedCode = providersInLocation.length - providersShown.length;
+
       // A full upstream page means more may match upstream regardless of how many
-      // survived the location post-filter — key truncation on the raw page size so
-      // post-filtering never hides a full page. `shown` reflects the kept rows.
+      // survived the post-filters — key truncation on the raw page size so post-filtering
+      // never hides a full page. `shown` reflects the kept rows.
       const fullPage = rawCount >= limit;
       if (fullPage) {
-        ctx.enrich.truncated({ shown: providersInLocation.length, cap: limit });
+        ctx.enrich.truncated({ shown: providersShown.length, cap: limit });
       }
 
       // ctx.enrich.notice is last-wins, so assemble one notice from fragments.
@@ -690,7 +726,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
           noticeParts.push('No providers matched.');
         } else if (postalCode && EXACT_PARTIAL_ZIP.test(postalCode)) {
           noticeParts.push(
-            `No providers matched. postal_code ${postalCode} was matched exactly, and no practice address is recorded with exactly that code — the registry extends only a 5-digit ZIP to the ZIP+4 codes that start with it. To match every ZIP starting with ${postalCode}, send postal_code ${postalCode}*.`,
+            `No providers matched. postal_code ${postalCode} was matched exactly, so it matches only a practice address recorded as exactly ${postalCode} — the registry extends only a 5-digit ZIP to the ZIP+4 codes that start with it. To match every ZIP starting with ${postalCode}, send postal_code ${postalCode}*; when ${postalCode} came from continuationPostalCodes, that search already ran and this empty result ends the branch.`,
           );
         } else {
           noticeParts.push(
@@ -713,18 +749,25 @@ export function createSearchProvidersTool(clampLimits: boolean) {
           'The postal_code contains letters, and the registry matches a lettered postal code for only some of the practice addresses recorded with it, so providers at this code can be missing. To reach them all, search by the practice city without postal_code; a non-US state is recorded inconsistently (e.g. "AB" or "ALBERTA"), so adding state can drop some.',
         );
       }
-
-      const otherNameRows = providersInLocation.filter((p) => p.matchedOtherName).length;
-      if (otherNameRows > 0) {
+      if (holdingNoResolvedCode > 0) {
         noticeParts.push(
-          `${otherNameRows} of ${providersInLocation.length} row(s) matched through an other name rather than the current name (see matchedOtherName). The registry sorts by current name, so other-name matches can fill pages ahead of current-name matches.`,
+          providersShown.length === 0
+            ? `${holdingNoResolvedCode} row(s) matched appliedTaxonomyDescription, but none holds a resolved taxonomy code, so none is shown: the registry matched the text through other codes whose taxonomies start with it (see resolvedTaxonomies; a classification-level code counts every code of its classification).`
+            : `${holdingNoResolvedCode} row(s) holding no resolved taxonomy code were filtered out: the registry matched appliedTaxonomyDescription through another code whose taxonomy starts with the same text (see resolvedTaxonomies; a classification-level code counts every code of its classification).`,
         );
       }
 
-      const otherTaxonomyRows = providersInLocation.filter((p) => p.matchedTaxonomy).length;
+      const otherNameRows = providersShown.filter((p) => p.matchedOtherName).length;
+      if (otherNameRows > 0) {
+        noticeParts.push(
+          `${otherNameRows} of ${providersShown.length} row(s) matched through an other name rather than the current name (see matchedOtherName). The registry sorts by current name, so other-name matches can fill pages ahead of current-name matches.`,
+        );
+      }
+
+      const otherTaxonomyRows = providersShown.filter((p) => p.matchedTaxonomy).length;
       if (otherTaxonomyRows > 0) {
         noticeParts.push(
-          `${otherTaxonomyRows} of ${providersInLocation.length} row(s) matched the specialty filter through a taxonomy other than their primary specialty (see matchedTaxonomy).`,
+          `${otherTaxonomyRows} of ${providersShown.length} row(s) matched the specialty filter through a taxonomy other than their primary specialty (see matchedTaxonomy).`,
         );
       }
 
@@ -744,11 +787,12 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         } else {
           const continuation = postalContinuation(postalCode);
           const postalCodes = 'postalCodes' in continuation ? continuation.postalCodes : [];
+          const exact = postalCodes.find((code) => !code.endsWith('*'));
           ctx.enrich({ continuationPostalCodes: postalCodes });
           noticeParts.push(
             'This is the terminal window: no further live-API page exists for this search, because only the first 1200 matches are reachable (skip max 1000, limit max 200).',
             'postalCodes' in continuation
-              ? `To continue, re-run the same arguments once per postal_code in continuationPostalCodes (${postalCodes[0]} … ${postalCodes.at(-1)}, ${postalCodes.length} values), each starting at skip 0, and follow each one's nextPage until a response names none (a page the location filter trimmed below limit can still name one); split a value that returns its own continuationPostalCodes the same way. A provider with several practice locations can appear under more than one value — dedupe by NPI. Practice addresses whose postal code is blank or contains letters (most outside the US) are not reached this way, nor is a numeric postcode shorter than the prefixes being split (a 4-digit postcode once they reach 5 digits).`
+              ? `To continue, re-run the same arguments once per postal_code in continuationPostalCodes (${postalCodes[0]} … ${postalCodes.at(-1)}, ${postalCodes.length} values), each starting at skip 0, and follow each one's nextPage until a response names none (a page the location or resolved-code filter trimmed below limit can still name one); split a value that returns its own continuationPostalCodes the same way.${exact ? ` ${exact}, the one value without a wildcard, matches only a postal code recorded with exactly those digits, which the wildcard values miss, so an empty result for it ends that branch.` : ''} A provider with several practice locations can appear under more than one value — dedupe by NPI. Practice addresses whose postal code is blank, or has a letter, space, or hyphen in a position the split adds, are not reached this way; most are outside the US.`
               : `No postal split remains: ${continuation.deadEnd}. Narrowing by name, specialty, or provider_type reaches other subsets of this search but is not guaranteed to cover every match.`,
           );
         }
@@ -757,7 +801,7 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         ctx.enrich.notice(noticeParts.join(' '));
       }
 
-      return { providers: providersInLocation };
+      return { providers: providersShown };
     },
 
     format: (result) => {
@@ -766,11 +810,15 @@ export function createSearchProvidersTool(clampLimits: boolean) {
       }
       const lines = [`## Providers (${result.providers.length})`];
       for (const p of result.providers) {
-        lines.push(`\n### ${p.name}${p.credential ? `, ${p.credential}` : ''}`);
-        lines.push(`**NPI:** ${p.npi} | **Type:** ${p.type} | **Status:** ${p.status}`);
+        lines.push(`\n### ${headingText(`${p.name}${p.credential ? `, ${p.credential}` : ''}`)}`);
+        lines.push(
+          `**NPI:** ${escapeMarkdownInline(p.npi)} | **Type:** ${p.type} | **Status:** ${p.status}`,
+        );
         if (p.authorizedOfficial) {
           const { name, title } = p.authorizedOfficial;
-          lines.push(`**Authorized official:** ${name}${title ? ` (${title})` : ''}`);
+          lines.push(
+            `**Authorized official:** ${escapeMarkdownInline(`${name}${title ? ` (${title})` : ''}`)}`,
+          );
         }
         if (p.primaryTaxonomy) {
           lines.push(`**Primary specialty:** ${renderTaxonomy(p.primaryTaxonomy)}`);
@@ -785,7 +833,9 @@ export function createSearchProvidersTool(clampLimits: boolean) {
         }
         if (p.matchedOtherName) {
           const { name, type } = p.matchedOtherName;
-          lines.push(`**Matched other name:** ${name}${type ? ` (${type})` : ''}`);
+          lines.push(
+            `**Matched other name:** ${escapeMarkdownInline(`${name}${type ? ` (${type})` : ''}`)}`,
+          );
         }
       }
       return [{ type: 'text', text: lines.join('\n') }];

@@ -6,6 +6,7 @@
  * @module tests/mcp-server/tools/get-provider.tool.test
  */
 
+import type { z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode, type McpError, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -16,6 +17,13 @@ import {
 import { initNppesService, NppesService } from '@/services/nppes/nppes-service.js';
 import type { ProviderRecord } from '@/services/nppes/types.js';
 import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import {
+  blockTypes,
+  expectReadsBack,
+  PRESETS,
+  readLines,
+  readMarkdown,
+} from '../../helpers/markdown-readback.js';
 
 beforeAll(() => {
   initTaxonomyService();
@@ -903,5 +911,232 @@ describe('getProviderTool taxonomy descriptions the registry leaves blank (#43)'
       state: 'WA',
     });
     expect(text).toContain('- Unknown (207RX9999X) — primary, license MD61452023, state WA');
+  });
+});
+
+// ── #55: registry text in content[] reads back as CommonMark ─────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/55
+
+type GetOutput = z.infer<typeof getProviderTool.output>;
+
+const renderGet = (output: GetOutput) => textOf(getProviderTool.format!(output));
+
+describe('getProviderTool content[] Markdown read-back (#55)', () => {
+  /**
+   * Look `raw` up through the public contract; return the output structuredContent
+   * carries (enrichment aside) and the format() block content[] carries for it.
+   */
+  async function lookUp(raw: { number: string } & Record<string, unknown>) {
+    stubRaw({ [raw.number]: raw });
+    const result = await runToolContract(getProviderTool, { npis: raw.number });
+    expect(result.isError).not.toBe(true);
+    const {
+      totalCount: _total,
+      notice: _notice,
+      ...output
+    } = result.structuredContent as GetOutput & {
+      notice?: string;
+      totalCount?: number;
+    };
+    const [rendered] = result.content;
+    expect(rendered).toEqual(getProviderTool.format!(output)[0]);
+    return { output, text: rendered?.type === 'text' ? rendered.text : '' };
+  }
+
+  const organization = (basic: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    number: '1234567893',
+    enumeration_type: 'NPI-2',
+    basic: { status: 'A', ...basic },
+    ...extra,
+  });
+
+  it('reads back Markdown in an organization name, and an identifier code with no description', async () => {
+    const { output, text } = await lookUp(
+      organization(
+        { organization_name: 'A*B*C [X](y) _Z_' },
+        { identifiers: [{ code: '05', identifier: '123456789' }] },
+      ),
+    );
+    // structuredContent carries the registry's text as served.
+    expect(output.found[0]?.organizationName).toBe('A*B*C [X](y) _Z_');
+    expect(output.found[0]?.identifiers).toEqual([{ identifier: '123456789', code: '05' }]);
+    for (const preset of PRESETS) {
+      const lines = readLines(text, preset);
+      expect(lines).toContain('A*B*C [X](y) _Z_');
+      expect(lines).toContain('⟨strong⟩Organization:⟨/strong⟩ A*B*C [X](y) _Z_');
+      expect(lines).toContain('(05): 123456789');
+    }
+    expectReadsBack(getProviderTool.output, output, renderGet);
+  });
+
+  it('opens no ordered list when a value ends in a line of digits before an authored )', async () => {
+    const { output, text } = await lookUp({
+      number: '1720034424',
+      enumeration_type: 'NPI-1',
+      basic: { first_name: 'JANE', last_name: 'DOE', status: 'A' },
+      other_names: [{ type: 'x\n1', first_name: 'JANE', last_name: 'ROE' }],
+    });
+    expect(output.found[0]?.otherNames).toEqual([
+      { type: 'x\n1', firstName: 'JANE', lastName: 'ROE' },
+    ]);
+    for (const preset of PRESETS) {
+      expect(blockTypes(text, preset)).not.toContain('ordered_list_open');
+      expect(readLines(text, preset)).toContain('JANE ROE (x\n1)');
+    }
+    expectReadsBack(getProviderTool.output, output, renderGet);
+  });
+
+  it('reads &amp; back as written, not as an entity', async () => {
+    const { output, text } = await lookUp(organization({ organization_name: 'AT&amp;T' }));
+    expect(output.found[0]?.organizationName).toBe('AT&amp;T');
+    for (const preset of PRESETS) {
+      expect(readLines(text, preset)).toContain('⟨strong⟩Organization:⟨/strong⟩ AT&amp;T');
+    }
+  });
+
+  it('collapses a line-broken name to one heading line and keeps the break elsewhere', async () => {
+    const { output, text } = await lookUp(organization({ organization_name: 'ACME\nHEALTH' }));
+    expect(output.found[0]?.name).toBe('ACME\nHEALTH');
+    for (const preset of PRESETS) {
+      const headings = readMarkdown(text, preset).filter((n) => n.kind === 'text' && n.heading);
+      expect(headings).toEqual([{ kind: 'text', text: 'ACME HEALTH', heading: true }]);
+      expect(readLines(text, preset)).toContain('⟨strong⟩Organization:⟨/strong⟩ ACME\nHEALTH');
+    }
+    expectReadsBack(getProviderTool.output, output, renderGet);
+  });
+
+  it('leaves a value with no Markdown-active character unchanged, with no added backslash', async () => {
+    const { text } = await lookUp({
+      number: '1720034424',
+      enumeration_type: 'NPI-1',
+      basic: { first_name: 'JANE', last_name: 'DOE', credential: 'MD', status: 'A' },
+      taxonomies: [{ code: '207R00000X', desc: 'Internal Medicine', primary: true }],
+      other_names: [{ type: 'snake_case', first_name: 'JANE', last_name: 'ROE' }],
+      endpoints: [{ endpoint: 'jane_doe@direct.example.org', endpointType: 'DIRECT' }],
+    });
+    for (const literal of [
+      '## JANE DOE, MD',
+      '**NPI:** 1720034424 |',
+      '- Internal Medicine (207R00000X) — primary',
+      '- JANE ROE (snake_case)',
+      '- jane_doe@direct.example.org — DIRECT',
+    ]) {
+      expect(text).toContain(literal);
+    }
+    expect(text).not.toContain('\\');
+  });
+
+  it('reads back upstream error text in an errored reason', async () => {
+    const message = '*Registry* <b>down</b>\n- retry [later](x)';
+    vi.spyOn(NppesService.prototype, 'getByNumber').mockImplementation(async (npi) => {
+      if (npi === '1720034424') throw serviceUnavailable(message);
+      return {
+        npi,
+        type: 'organization',
+        status: 'active',
+        name: 'EXAMPLE CLINIC',
+        taxonomies: [],
+        addresses: [],
+        practiceLocations: [],
+        identifiers: [],
+        otherNames: [],
+        endpoints: [],
+      };
+    });
+    const result = await getProviderTool.handler(
+      getProviderTool.input.parse({ npis: ['1720034424', '1234567893'] }),
+      ctx(),
+    );
+    expect(result.errored).toEqual([{ npi: '1720034424', reason: message }]);
+    const text = renderGet(result);
+    for (const preset of PRESETS) {
+      expect(readLines(text, preset)).toContain(`⟨strong⟩1720034424⟨/strong⟩: ${message}`);
+    }
+    expectReadsBack(getProviderTool.output, result, renderGet);
+  });
+});
+
+// ── #56: npi and npi_numbers reach npis ──────────────────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/56
+
+describe('getProviderTool input aliases (#56)', () => {
+  /** Run `args` as a client sends them, past the typed input the aliases rewrite into. */
+  const call = (clamp: boolean, args: Record<string, unknown>) =>
+    runToolContract(createGetProviderTool(clamp), args as never);
+
+  const RECORDS = {
+    '1053388736': recordFor('1053388736'),
+    '1720034424': recordFor('1720034424'),
+    '1720034416': null,
+  };
+
+  it.each([true, false])(
+    'answers npi and npi_numbers as it answers npis (NPI_CLAMP_LIMITS %s)',
+    async (clamp) => {
+      for (const [args, canonical] of [
+        [{ npi: '1053388736' }, '1053388736'],
+        [{ npi: ['1053388736'] }, ['1053388736']],
+        [{ npi_numbers: ['1053388736', '1720034424'] }, ['1053388736', '1720034424']],
+        [
+          { npi_numbers: ['1053388736', '1720034416', '1053388737'] },
+          ['1053388736', '1720034416', '1053388737'],
+        ],
+      ] as const) {
+        stubRaw(RECORDS);
+        const viaAlias = await call(clamp, args);
+        stubRaw(RECORDS);
+        const viaNpis = await call(clamp, { npis: canonical });
+        expect(viaAlias.isError).not.toBe(true);
+        expect(viaAlias.structuredContent).toEqual(viaNpis.structuredContent);
+        expect(viaAlias.content).toEqual(viaNpis.content);
+      }
+      stubRaw(RECORDS);
+      const mixed = await call(clamp, { npi_numbers: ['1053388736', '1720034416', '1053388737'] });
+      expect(mixed.structuredContent).toMatchObject({
+        found: [{ npi: '1053388736' }],
+        notFound: [{ npi: '1720034416' }],
+        invalid: [{ npi: '1053388737' }],
+      });
+    },
+  );
+
+  it('still validates the check digit and the NPI format under npi', async () => {
+    stubRaw(RECORDS);
+    const badDigit = await call(true, { npi: '1053388737' });
+    expect(badDigit).toMatchObject({
+      isError: true,
+      structuredContent: {
+        error: {
+          code: JsonRpcErrorCode.ValidationError,
+          data: { reason: 'invalid_npi_format' },
+        },
+      },
+    });
+    const short = await call(true, { npi: '105338873' });
+    expect(short).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: JsonRpcErrorCode.InvalidParams } },
+    });
+    expect(textOf(short.content)).toContain('npis');
+  });
+
+  it.each([
+    [
+      { npi: '1053388736', npis: ['1720034424'] },
+      'npi is an alias of npis; send one of them, not both.',
+    ],
+    [
+      { npi: '1053388736', npi_numbers: ['1720034424'] },
+      'npi and npi_numbers are aliases of npis; send one of them, not both.',
+    ],
+  ])('rejects an alias sent beside another key for npis: %o', async (args, hint) => {
+    const fetchSpy = stubRaw(RECORDS);
+    const result = await call(true, args);
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: JsonRpcErrorCode.InvalidParams } },
+    });
+    expect(textOf(result.content)).toContain(hint);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

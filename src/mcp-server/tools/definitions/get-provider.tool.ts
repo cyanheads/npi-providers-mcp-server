@@ -7,7 +7,8 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
-import { ErrorHandler } from '@cyanheads/mcp-ts-core/utils';
+import { ErrorHandler, escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { headingText } from '@/mcp-server/heading-text.js';
 import { hasValidNpiCheckDigit } from '@/mcp-server/npi-check-digit.js';
 import { getNppesService } from '@/services/nppes/nppes-service.js';
 import type { ProviderRecord } from '@/services/nppes/types.js';
@@ -206,22 +207,36 @@ function toFullRecord(r: ProviderRecord): z.infer<typeof FullProviderRecordSchem
   return r as z.infer<typeof FullProviderRecordSchema>;
 }
 
+/**
+ * The record as Markdown. Registry text is encoded where it is placed: a list item's
+ * whole text, which holds only plain authored separators, goes through
+ * `escapeMarkdownInline` as one run, so a value can't combine with the text around it
+ * into syntax (a last line of digits before the closing `)` would open an ordered
+ * list); beside authored `**Label:**` markup, each value is escaped alone.
+ */
 function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
-  const lines = [`## ${r.name}${r.credential ? `, ${r.credential}` : ''}`];
-  lines.push(`**NPI:** ${r.npi} | **Type:** ${r.type} | **Status:** ${r.status}`);
+  const lines = [`## ${headingText(`${r.name}${r.credential ? `, ${r.credential}` : ''}`)}`];
+  lines.push(
+    `**NPI:** ${escapeMarkdownInline(r.npi)} | **Type:** ${r.type} | **Status:** ${r.status}`,
+  );
   if (r.namePrefix || r.firstName || r.middleName || r.lastName || r.nameSuffix) {
     const full = [r.namePrefix, r.firstName, r.middleName, r.lastName, r.nameSuffix]
       .filter(Boolean)
       .join(' ');
-    if (full) lines.push(`**Name:** ${full}`);
+    if (full) lines.push(`**Name:** ${escapeMarkdownInline(full)}`);
   }
-  if (r.organizationName) lines.push(`**Organization:** ${r.organizationName}`);
-  if (r.sex) lines.push(`**Sex:** ${r.sex}`);
-  if (r.soleProprietor) lines.push(`**Sole proprietor:** ${r.soleProprietor}`);
-  if (r.organizationalSubpart) lines.push(`**Organizational subpart:** ${r.organizationalSubpart}`);
-  if (r.enumerationDate) lines.push(`**Enumerated:** ${r.enumerationDate}`);
-  if (r.lastUpdated) lines.push(`**Last updated:** ${r.lastUpdated}`);
-  if (r.certificationDate) lines.push(`**Certified:** ${r.certificationDate}`);
+  const labeled = [
+    ['Organization', r.organizationName],
+    ['Sex', r.sex],
+    ['Sole proprietor', r.soleProprietor],
+    ['Organizational subpart', r.organizationalSubpart],
+    ['Enumerated', r.enumerationDate],
+    ['Last updated', r.lastUpdated],
+    ['Certified', r.certificationDate],
+  ] as const;
+  for (const [label, value] of labeled) {
+    if (value) lines.push(`**${label}:** ${escapeMarkdownInline(value)}`);
+  }
   if (r.createdEpoch !== undefined) lines.push(`**Created (epoch ms):** ${r.createdEpoch}`);
   if (r.lastUpdatedEpoch !== undefined)
     lines.push(`**Last updated (epoch ms):** ${r.lastUpdatedEpoch}`);
@@ -232,10 +247,10 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
       .filter(Boolean)
       .join(' ');
     const bits = [
-      name && `**Name:** ${name}`,
-      ao.credential && `**Credential:** ${ao.credential}`,
-      ao.title && `**Title:** ${ao.title}`,
-      ao.telephoneNumber && `**Phone:** ${ao.telephoneNumber}`,
+      name && `**Name:** ${escapeMarkdownInline(name)}`,
+      ao.credential && `**Credential:** ${escapeMarkdownInline(ao.credential)}`,
+      ao.title && `**Title:** ${escapeMarkdownInline(ao.title)}`,
+      ao.telephoneNumber && `**Phone:** ${escapeMarkdownInline(ao.telephoneNumber)}`,
     ].filter(Boolean);
     if (bits.length) lines.push(`\n**Authorized Official** — ${bits.join(' | ')}`);
   }
@@ -252,7 +267,9 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
       ]
         .filter(Boolean)
         .join(', ');
-      lines.push(`- ${t.description ?? 'Unknown'} (${t.code})${extra ? ` — ${extra}` : ''}`);
+      lines.push(
+        `- ${escapeMarkdownInline(`${t.description ?? 'Unknown'} (${t.code})${extra ? ` — ${extra}` : ''}`)}`,
+      );
     }
   }
 
@@ -274,7 +291,7 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
         .join(', ');
       const head = a.purpose ?? 'ADDRESS';
       const body = [street, cityLine, country].filter(Boolean).join(', ');
-      lines.push(`- ${head}: ${body}${meta ? ` — ${meta}` : ''}`);
+      lines.push(`- ${escapeMarkdownInline(`${head}: ${body}${meta ? ` — ${meta}` : ''}`)}`);
     }
   };
   renderAddrs('Addresses', r.addresses);
@@ -283,10 +300,10 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
   if (r.identifiers.length) {
     lines.push('\n**Identifiers:**');
     for (const i of r.identifiers) {
-      const label = [i.description, i.code ? `[${i.code}]` : undefined].filter(Boolean).join(' ');
+      const label = [i.description, i.code ? `(${i.code})` : undefined].filter(Boolean).join(' ');
       const issuer = i.issuer ? ` — ${i.issuer}` : '';
       const state = i.state ? ` (${i.state})` : '';
-      lines.push(`- ${label || 'ID'}: ${i.identifier}${issuer}${state}`);
+      lines.push(`- ${escapeMarkdownInline(`${label || 'ID'}: ${i.identifier}${issuer}${state}`)}`);
     }
   }
   if (r.otherNames.length) {
@@ -303,7 +320,7 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
       ]
         .filter(Boolean)
         .join(' ');
-      lines.push(`- ${nm || 'Unknown'}${n.type ? ` (${n.type})` : ''}`);
+      lines.push(`- ${escapeMarkdownInline(`${nm || 'Unknown'}${n.type ? ` (${n.type})` : ''}`)}`);
     }
   }
   if (r.endpoints.length) {
@@ -328,10 +345,14 @@ function renderRecord(r: z.infer<typeof FullProviderRecordSchema>): string {
       const country = [e.countryName, e.countryCode ? `(${e.countryCode})` : undefined]
         .filter(Boolean)
         .join(' ');
-      const loc = [addr, country].filter(Boolean).join(', ');
-      const addrType = e.addressType ? ` [${e.addressType}]` : '';
-      lines.push(`- ${e.endpoint}${meta ? ` — ${meta}` : ''}`);
-      if (loc || addrType) lines.push(`  ${loc}${addrType}`);
+      const loc = [
+        [addr, country].filter(Boolean).join(', '),
+        e.addressType && `(type ${e.addressType})`,
+      ]
+        .filter(Boolean)
+        .join(' ');
+      lines.push(`- ${escapeMarkdownInline(`${e.endpoint}${meta ? ` — ${meta}` : ''}`)}`);
+      if (loc) lines.push(`  ${escapeMarkdownInline(loc)}`);
     }
   }
   return lines.join('\n');
@@ -342,6 +363,8 @@ export function createGetProviderTool(clampLimits: boolean) {
   return tool('npi_get_provider', {
     description: `Fetch NPPES records from up to ${clampLimits ? 100 : 10} raw NPI entries per call. Deduplicate in input order, validate check digits, and look up the first 10 distinct valid NPIs; remaining valid NPIs are listed in unprocessed and are never looked up. Decodes an NPI from a claim, prescription, or another health data source into the provider's professional-practice profile: every taxonomy with its primary flag, license number and state (a description the registry leaves blank comes from the bundled NUCC code set, marked descriptionSource "nucc"); practice addresses with phone and fax (only LOCATION rows are kept for individual providers, so their mailing address is withheld; organizations also carry their mailing address); credential, sex, sole-proprietor flag; enumeration and last-updated dates; active/deactivated status; secondary identifiers (Medicaid, etc.); and FHIR/Direct endpoints. Each NPI must be 10 digits with a valid check digit (its last digit); every NPI failing the check digit lands in invalid and is never looked up. Reports partial success: valid NPIs with no registry record (deactivated or never enumerated) land in notFound, while NPIs whose lookup hit an upstream error (registry unavailable, timeout) land in errored — kept distinct from confirmed misses — rather than failing the whole call.`,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    // The natural key for one provider number; agents send it, and npi_numbers, for npis.
+    inputAliases: { npi: 'npis', npi_numbers: 'npis' },
 
     errors: [
       {
@@ -557,21 +580,24 @@ export function createGetProviderTool(clampLimits: boolean) {
       if (result.found.length > 0) {
         for (const r of result.found) lines.push(renderRecord(r));
       }
+      // An errored reason carries upstream error text, so every reason is escaped.
+      const reasonItem = (row: { npi: string; reason: string }) =>
+        `- **${escapeMarkdownInline(row.npi)}**: ${escapeMarkdownInline(row.reason)}`;
       if (result.notFound.length > 0) {
         lines.push('\n## Not found');
-        for (const nf of result.notFound) lines.push(`- **${nf.npi}**: ${nf.reason}`);
+        for (const nf of result.notFound) lines.push(reasonItem(nf));
       }
       if (result.errored.length > 0) {
         lines.push('\n## Errored (upstream failure — unresolved, not absent; retry)');
-        for (const e of result.errored) lines.push(`- **${e.npi}**: ${e.reason}`);
+        for (const e of result.errored) lines.push(reasonItem(e));
       }
       if (result.invalid.length > 0) {
         lines.push('\n## Invalid (failed the NPI check digit — not looked up)');
-        for (const i of result.invalid) lines.push(`- **${i.npi}**: ${i.reason}`);
+        for (const i of result.invalid) lines.push(reasonItem(i));
       }
       if (result.unprocessed?.length) {
         lines.push('\n## Unprocessed (valid NPIs — not looked up)');
-        for (const npi of result.unprocessed) lines.push(`- ${npi}`);
+        for (const npi of result.unprocessed) lines.push(`- ${escapeMarkdownInline(npi)}`);
       }
       return [{ type: 'text', text: lines.join('\n\n') }];
     },

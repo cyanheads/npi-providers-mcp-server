@@ -11,6 +11,11 @@
  * parts with `, `, but either part can itself hold `, ` (`Spec/Tech, Cardiovascular`,
  * `Psych/Mental Health, Adult`) and either can be worded differently from NUCC, so the
  * split is anchored on the bundled entry, never on the first comma.
+ *
+ * This rule judges every taxonomy for `taxonomy_description` text sent as written. Text from
+ * resolved taxonomies (a specialty, or a decoded NUCC code or display name) also reaches every
+ * other code that starts with it, so there a taxonomy counts by its code instead, never by
+ * this rule (`taxonomyFilterCounts` in `nppes-service.ts`).
  */
 
 import { taxonomyNamesOf } from '@/services/taxonomy/taxonomy-service.js';

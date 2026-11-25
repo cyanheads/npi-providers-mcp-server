@@ -9,6 +9,8 @@ import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
 import {
   type BrowseFilters,
   PREFERRED_ENTRIES,
+  resolvedCodeSet,
+  specialtyCandidates,
   stopWordOnlyQuery,
   TaxonomyService,
   taxonomyDescriptionOf,
@@ -456,6 +458,86 @@ describe('TaxonomyService', () => {
       expect(codes('occupational therapist')).toHaveLength(18);
       expect(codes('physical therapist')).toHaveLength(14);
     });
+  });
+
+  describe('resolve — a qualified "therapy" names the therapist profession (#50)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/50
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+
+    it('"physical therapy" leads with Physical Therapist, the assistant and clinic still matched', () => {
+      const hits = codes('physical therapy');
+      expect(hits[0]).toBe('225100000X');
+      expect(hits).toEqual(expect.arrayContaining(['225200000X', '261QP2000X']));
+    });
+
+    it('"occupational therapy" leads with Occupational Therapist, the assistant still matched', () => {
+      const hits = codes('occupational therapy');
+      expect(hits[0]).toBe('225X00000X');
+      expect(hits).toContain('224Z00000X');
+    });
+
+    it.each([
+      ['respiratory therapy', '227800000X'],
+      ['massage therapy', '225700000X'],
+      ['music therapy', '225A00000X'],
+      ['art therapy', '221700000X'],
+      ['recreational therapy', '225800000X'],
+      ['recreational therapist', '225800000X'],
+      ['recreation therapy', '225800000X'],
+      ['drama therapy', '101200000X'],
+      ['dance therapy', '225600000X'],
+      ['poetry therapy', '102X00000X'],
+      ['marriage and family therapy', '106H00000X'],
+      ['hand therapy', '2251H1200X'],
+      ['feeding therapy', '225XF0002X'],
+    ])('"%s" resolves to %s first', (query, code) => {
+      expect(codes(query)[0]).toBe(code);
+    });
+
+    it.each([
+      ['physical therapy clinic', '261QP2000X'],
+      ['therapy clinic', '261QI0500X'],
+      ['infusion therapy', '261QI0500X'],
+    ])('the facility "%s" names keeps the lead: %s', (query, code) => {
+      // "Therapist" matches as the word "therapy" itself, never as an alias that would outrank it.
+      expect(codes(query)[0]).toBe(code);
+    });
+
+    it('a bare "therapy" keeps its 16 matches led by 207UN0902X, stop words aside (characterization)', () => {
+      const hits = codes('therapy');
+      expect(hits).toHaveLength(16);
+      expect(hits[0]).toBe('207UN0902X');
+      expect(codes('therapy doctor')).toEqual(hits);
+    });
+
+    it.each([
+      ['speech therapy', '235Z00000X'],
+      ['radiation therapy', '2471R0002X'],
+    ])('"%s" keeps %s first (characterization)', (query, code) => {
+      expect(codes(query)[0]).toBe(code);
+    });
+
+    it.each(['radiology therapy', 'therapy radiology'])(
+      '"%s" resolves to 2471R0002X alone: the word form "therap" never reaches Therapeutic Radiology',
+      (query) => {
+        // Therapeutic (2085R0203X) is the one bundled word besides Therapy and Therapist starting "therap".
+        expect(codes(query)).toEqual(['2471R0002X']);
+      },
+    );
+
+    it.each(['physical therapy', 'EMS', 'DMD'])(
+      'a skip-walk of "%s" reaches every match exactly once, in rank order (#7)',
+      (query) => {
+        const all = codes(query);
+        expect(all.length).toBeGreaterThan(10);
+        const walked: string[] = [];
+        for (let skip = 0; skip < all.length; skip += 4) {
+          walked.push(...svc.resolve(query, 4, skip).map((e) => e.code));
+        }
+        expect(walked).toEqual(all);
+        expect(svc.resolve(query, 4, all.length)).toEqual([]);
+      },
+    );
   });
 
   describe('resolve — pediatric variants rank after the general specialty (#25)', () => {
@@ -1094,7 +1176,8 @@ describe('TaxonomyService', () => {
       ['ent', 8, ['207Y00000X', '207YX0905X', '207YP0228X', '207YX0901X', '207YX0602X']],
       ['ob gyn', 12, ['207V00000X', '207VG0400X', '207VX0000X', '207VX0201X', '207VC0300X']],
       ['dentist', 22, ['122300000X', '122400000X', '124Q00000X', '125J00000X', '126800000X']],
-      ['clinical genetics', 4, ['207SC0300X', '207SG0201X', '207SG0203X', '207SG0202X']],
+      // #53: Clinical Genetics (M.D.) leads once its "(M.D.)" indexes as one word.
+      ['clinical genetics', 4, ['207SG0201X', '207SC0300X', '207SG0203X', '207SG0202X']],
       ['legal medicine', 2, ['209800000X', '173000000X']],
     ] as const)(
       '"%s" keeps its %i matches and leading order (characterization)',
@@ -1132,11 +1215,181 @@ describe('TaxonomyService', () => {
     });
 
     it('a one-letter query matches only entries carrying that letter as a whole word', () => {
+      // #53: "(M.D.)", "(D.M.D.)", and "(M.D./D.O.)" index as joined words, leaving Ph.D.'s "d".
       const hits = svc.resolve('d', 1000);
-      expect(hits.map((e) => e.code).sort()).toEqual(
-        ['170100000X', '204E00000X', '207SG0201X', '207SG0205X', '209800000X'].sort(),
-      );
+      expect(hits.map((e) => e.code).sort()).toEqual(['170100000X', '207SG0205X']);
     });
+  });
+
+  describe('resolve — two-letter tokens match whole words (#49)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/49
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+    const text = (code: string) => {
+      const e = svc.get(code);
+      return `${e?.classification} ${e?.specialization ?? ''} ${e?.displayName}`;
+    };
+
+    it.each(['im', 'IM', 'ma', 'ed', 'dr', 'st', 'IM doctor', 'ED doctor'])(
+      '"%s" matches nothing rather than every word it starts',
+      (query) => {
+        expect(svc.resolveWithInactive(query, 1000)).toEqual({ matches: [], inactiveMatches: [] });
+      },
+    );
+
+    // 0.5.1 reached these through a word start; the `mr` and `gy` rows keep each answer.
+    const MRI = ['207RM1200X', '261QM1200X'];
+    const GYNECOLOGY = [
+      '207V00000X',
+      '207VG0400X',
+      '207VX0201X',
+      '2088F0040X',
+      '207VF0040X',
+      '207VX0000X',
+      '207VC0300X',
+      '207VM0101X',
+      '207VE0102X',
+      '207VB0002X',
+      '207VC0200X',
+      '207VH0002X',
+      '363LX0001X',
+    ];
+    const OB_GYNECOLOGY = [
+      '207V00000X',
+      '207VG0400X',
+      '207VX0000X',
+      '207VX0201X',
+      '207VC0300X',
+      '207VM0101X',
+      '207VE0102X',
+      '207VB0002X',
+      '207VC0200X',
+      '207VH0002X',
+      '207VF0040X',
+      '363LX0001X',
+    ];
+    it.each([
+      ['mr', MRI],
+      ['MR', MRI],
+      ['M.R.', MRI],
+      ['MR imaging', MRI],
+      ['mr clinic', ['261QM1200X']],
+      ['gy', GYNECOLOGY],
+      ['GY', GYNECOLOGY],
+      ['ob gy', OB_GYNECOLOGY],
+      ['OB/GY', OB_GYNECOLOGY],
+      ['gy onc', ['207VX0201X']],
+    ])('"%s" resolves as it did before two-letter tokens went whole-word', (query, expected) => {
+      expect(codes(query)).toEqual(expected);
+    });
+
+    it.each(['ob', 'OB', 'O.B.', 'ob doctor'])(
+      '"%s" leads with Obstetrics & Gynecology and reaches only Obstetrics labels',
+      (query) => {
+        const hits = codes(query);
+        expect(hits[0]).toBe('207V00000X');
+        expect(hits).not.toContain('207QB0002X'); // Obesity Medicine (Family Medicine)
+        expect(hits.filter((code) => !/obstetric/i.test(text(code)))).toEqual([]);
+      },
+    );
+
+    it.each(['em', 'EMS', 'E.M.S.'])('"%s" leads with Emergency Medicine', (query) => {
+      expect(codes(query)[0]).toBe('207P00000X');
+    });
+
+    it('"EMS" reaches every Emergency label, the EMT levels included, and no other word', () => {
+      const hits = codes('EMS');
+      expect(hits).toEqual(
+        expect.arrayContaining(['146N00000X', '146M00000X', '146L00000X', '207PE0004X']),
+      );
+      expect(hits).toEqual(codes('emergency'));
+      expect(hits).toHaveLength(20);
+      expect(hits).not.toContain('322D00000X'); // Emotionally Disturbed Childrens' Residential…
+    });
+
+    it('"at" resolves to Athletic Trainer alone', () => {
+      expect(codes('at')).toEqual(['2255A2300X']);
+    });
+
+    it('labels keep their own two-letter words: "va" and "Ph.D." reach only the entries that say them', () => {
+      expect(codes('va')).toEqual(['261QV0200X', '332100000X']);
+      expect([...codes('Ph.D.')].sort()).toEqual(['170100000X', '207SG0205X']);
+    });
+
+    it.each([
+      ['pa', 3, '363A00000X', 'P.A.'],
+      ['rn', 58, '163W00000X', 'R.N.'],
+      ['np', 18, '363L00000X', 'N.P.'],
+      ['pt', 13, '225100000X', 'P.T.'],
+      ['ot', 18, '225X00000X', 'O.T.'],
+      ['gi', 3, '207RG0100X', 'G.I.'],
+      ['id', 3, '207RI0200X', 'I.D.'],
+      ['gp', 3, '208D00000X', 'G.P.'],
+      ['er', 9, '207P00000X', 'E.R.'],
+    ] as const)(
+      'aliased "%s" keeps its %i matches led by %s, and "%s" resolves the same (characterization)',
+      (key, count, top, dotted) => {
+        const hits = codes(key);
+        expect(hits).toHaveLength(count);
+        expect(hits[0]).toBe(top);
+        expect(codes(dotted)).toEqual(hits);
+      },
+    );
+  });
+
+  describe('resolve — dotted credentials in NUCC labels (#53)', () => {
+    // https://github.com/cyanheads/npi-providers-mcp-server/issues/53
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+
+    it.each([
+      'Clinical Genetics (M.D.) Physician',
+      'Clinical Genetics (M.D.)',
+      'Clinical Genetics (MD)',
+      'clinical genetics md',
+    ])('"%s" leads with Clinical Genetics (M.D.) and keeps its 4 matches', (query) => {
+      const hits = codes(query);
+      expect(hits[0]).toBe('207SG0201X');
+      expect([...hits].sort()).toEqual(['207SC0300X', '207SG0201X', '207SG0202X', '207SG0203X']);
+    });
+
+    it('"Oral & Maxillofacial Surgery (D.M.D.)" resolves to its own entry first', () => {
+      expect(codes('Oral & Maxillofacial Surgery (D.M.D.)')[0]).toBe('204E00000X');
+    });
+
+    it('every active display name with dotted single letters (M.D., D.M.D., U.S.) resolves to its own entry first', () => {
+      const dotted = TAXONOMY_ENTRIES.filter(
+        (e) => e.status === 'active' && /\b\p{L}\.\p{L}\b/u.test(e.displayName),
+      );
+      expect(dotted).toHaveLength(11);
+      for (const e of dotted) expect(codes(e.displayName)[0], e.displayName).toBe(e.code);
+    });
+
+    it.each(['DMD', 'D.M.D.', 'DDS', 'D.D.S.'])('"%s" leads with Dentist', (query) => {
+      expect(codes(query)[0]).toBe('122300000X');
+    });
+
+    it('"DDS" matches what "dentist" matches; "DMD" adds the one label carrying its letters', () => {
+      expect(codes('DDS')).toEqual(codes('dentist'));
+      expect([...codes('DMD')].sort()).toEqual([...codes('dentist'), '204E00000X'].sort());
+    });
+
+    it('"M.S." returns only Genetic Counselor (M.S.)', () => {
+      expect(codes('M.S.')).toEqual(['170300000X']);
+    });
+
+    it.each([
+      ['Legal Medicine (M.D./D.O.) Physician', '209800000X'],
+      ['Genetic Counselor (M.S.)', '170300000X'],
+    ])('"%s" still resolves to %s first (characterization)', (query, code) => {
+      expect(codes(query)[0]).toBe(code);
+    });
+
+    it.each(['M.D.', 'D.O.', 'MD'])(
+      '"%s" stays a stop-word-only query now that labels index it (characterization)',
+      (query) => {
+        expect(svc.resolveWithInactive(query, 1000)).toEqual({ matches: [], inactiveMatches: [] });
+        expect(stopWordOnlyQuery(query)).toBe('physician');
+      },
+    );
   });
 
   describe('resolve — a query of only stop words names no specialty (#31)', () => {
@@ -1185,6 +1438,29 @@ describe('TaxonomyService', () => {
     it('a blank query is not a stop-word-only query', () => {
       expect(stopWordOnlyQuery('   ')).toBeUndefined();
     });
+  });
+
+  describe('resolve — "dr" abbreviates doctor (stop word)', () => {
+    const codes = (query: string) => svc.resolve(query, 1000).map((e) => e.code);
+
+    it.each([
+      ['eye dr', 'eye doctor'],
+      ['heart dr', 'heart doctor'],
+      ['Eye Dr.', 'eye doctor'],
+      ['eye drs', 'eye doctors'],
+    ])('"%s" resolves exactly as "%s"', (abbreviated, spelled) => {
+      expect(codes(spelled).length).toBeGreaterThan(0);
+      expect(codes(abbreviated)).toEqual(codes(spelled));
+      expect(stopWordOnlyQuery(abbreviated)).toBeUndefined();
+    });
+
+    it.each(['dr', 'Dr.', 'DRs', 'dr physician'])(
+      '"%s" matches nothing and is a stop-word-only query (physician)',
+      (query) => {
+        expect(svc.resolveWithInactive(query, 1000)).toEqual({ matches: [], inactiveMatches: [] });
+        expect(stopWordOnlyQuery(query)).toBe('physician');
+      },
+    );
   });
 
   describe('resolve — plural stop words (#32)', () => {
@@ -1726,5 +2002,118 @@ describe('TaxonomyService', () => {
         });
       });
     });
+  });
+});
+
+// ── #51: the codes a resolved specialty search keeps ─────────────────────────
+// https://github.com/cyanheads/npi-providers-mcp-server/issues/51
+
+describe('specialtyCandidates (#51)', () => {
+  const SPORTS_MEDICINE = [
+    '207QS0010X',
+    '207RS0010X',
+    '207PS0010X',
+    '2084S0010X',
+    '207XX0005X',
+    '2083S0010X',
+    '2081S0010X',
+    '2080S0010X',
+    '213ES0000X',
+  ];
+
+  it('lists every later candidate that sends the first one’s text at its level, in rank order', () => {
+    expect(specialtyCandidates(svc, 'sports medicine', 5).matches.map((e) => e.code)).toEqual(
+      SPORTS_MEDICINE,
+    );
+    // Ranked seventh, the Neuromusculoskeletal classification sends its own text.
+    expect(svc.resolve('sports medicine', 10).map((e) => e.code)).toContain('204C00000X');
+  });
+
+  it('starts from the limit: one candidate still brings every same-text one', () => {
+    expect(specialtyCandidates(svc, 'sports medicine', 1).matches.map((e) => e.code)).toEqual(
+      SPORTS_MEDICINE,
+    );
+    expect(specialtyCandidates(svc, 'cardiologist', 1).matches.map((e) => e.code)).toEqual([
+      '207RC0000X',
+    ]);
+  });
+
+  it('lists all ten Hospice and Palliative Medicine candidates', () => {
+    const { matches } = specialtyCandidates(svc, 'hospice and palliative medicine', 5);
+    expect(matches).toHaveLength(10);
+    for (const entry of matches) {
+      expect(taxonomyDescriptionOf(entry)).toBe('Hospice and Palliative Medicine');
+    }
+  });
+
+  it.each([
+    'pediatrician',
+    'psychiatrist',
+    'cardiologist',
+    'family nurse practitioner',
+    'pediatric nurse practitioner',
+  ])('keeps resolve’s first five for %j, whose later candidates send other text', (query) => {
+    expect(specialtyCandidates(svc, query, 5).matches).toEqual(svc.resolve(query, 5));
+  });
+
+  it('never appends a candidate at the other level: pediatrician leaves nursing Pediatrics out', () => {
+    const later = svc.resolve('pediatrician', 1000).slice(5);
+    expect(
+      later.filter((e) => taxonomyDescriptionOf(e) === 'Pediatrics').map((e) => e.code),
+    ).toContain('363LP0200X');
+    expect(specialtyCandidates(svc, 'pediatrician', 5).matches.map((e) => e.code)).not.toContain(
+      '363LP0200X',
+    );
+  });
+
+  it('passes inactive matches through, and a miss through empty', () => {
+    expect(specialtyCandidates(svc, 'christian science', 5)).toEqual(
+      svc.resolveWithInactive('christian science', 5),
+    );
+    expect(specialtyCandidates(svc, 'christian science', 5).inactiveMatches).toHaveLength(2);
+    expect(specialtyCandidates(svc, 'zzzznotaspecialty', 5)).toEqual({
+      matches: [],
+      inactiveMatches: [],
+    });
+  });
+});
+
+describe('resolvedCodeSet (#51)', () => {
+  /** The sorted codes the bundled entries `entryCodes` stand for. */
+  const codesFor = (...entryCodes: string[]) =>
+    [
+      ...resolvedCodeSet(
+        svc,
+        entryCodes.map((code) => svc.get(code) as TaxonomyEntry),
+      ),
+    ].sort();
+
+  it('a specialization code stands for itself', () => {
+    expect(codesFor('363LF0000X')).toEqual(['363LF0000X']);
+    expect(codesFor('207RH0000X')).toEqual(['207RH0000X']);
+  });
+
+  it('a classification code stands for every code of its classification', () => {
+    const nursePractitioner = codesFor('363L00000X');
+    expect(nursePractitioner).toHaveLength(18);
+    expect(nursePractitioner).toEqual(expect.arrayContaining(['363L00000X', '363LF0000X']));
+    expect(nursePractitioner).not.toContain('364SP0200X');
+    expect(codesFor('207R00000X')).toHaveLength(31);
+    expect(codesFor('207R00000X')).toEqual(expect.arrayContaining(['207RC0000X', '207RH0003X']));
+  });
+
+  it('counts the inactive codes of a classification', () => {
+    expect(codesFor('103T00000X')).toEqual(expect.arrayContaining(['103TF0000X', '103TP2700X']));
+  });
+
+  it('keeps a classification name another grouping reuses to its own grouping', () => {
+    expect(codesFor('225500000X')).toEqual(['225500000X', '2255A2300X', '2255R0406X']);
+    expect(codesFor('235500000X')).toEqual(['235500000X', '2355A2700X', '2355S0801X']);
+    expect(codesFor('209800000X')).toEqual(['209800000X']);
+  });
+
+  it('unites every entry, and is empty for none', () => {
+    expect(codesFor('363LF0000X', '207RH0000X')).toEqual(['207RH0000X', '363LF0000X']);
+    expect(codesFor()).toEqual([]);
   });
 });

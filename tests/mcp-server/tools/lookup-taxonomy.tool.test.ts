@@ -14,6 +14,7 @@ import {
 } from '@/mcp-server/tools/definitions/lookup-taxonomy.tool.js';
 import { TAXONOMY_ENTRIES } from '@/services/taxonomy/taxonomy-data.js';
 import { initTaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import { blockTypes, PRESETS, readLines } from '../../helpers/markdown-readback.js';
 
 beforeAll(() => {
   initTaxonomyService();
@@ -124,7 +125,13 @@ describe('lookupTaxonomyTool', () => {
     const value = structured.matches?.[0]?.[field] as string;
     expect(value).toContain('\n');
     expect(value).not.toMatch(/<br\/>|<\/?ul>|<li>/);
-    expect(text).toContain(value);
+    // content[] reads back as CommonMark: the value whole on its line, its `- ` lines no list.
+    for (const preset of PRESETS) {
+      expect(readLines(text, preset)).toContain(
+        field === 'notes' ? `⟨strong⟩Notes:⟨/strong⟩ ${value}` : value,
+      );
+      expect(blockTypes(text, preset)).not.toContain('bullet_list_open');
+    }
     if (code === '225XR0403X') expect(value.split('\n- ')).toHaveLength(6);
   });
   it('keeps business Group codes in the Individual NUCC section (characterization)', async () => {
@@ -399,7 +406,9 @@ describe('lookupTaxonomyTool NUCC Notes (#11)', () => {
   it('get: returns the trimmed Notes cell byte for byte on both surfaces', async () => {
     const { structured, text } = await run({ mode: 'get', code: '242T00000X' });
     expect(structured.matches?.[0]?.notes).toBe(PERFUSIONIST_NOTES);
-    expect(text).toContain(PERFUSIONIST_NOTES);
+    for (const preset of PRESETS) {
+      expect(readLines(text, preset)).toContain(`⟨strong⟩Notes:⟨/strong⟩ ${PERFUSIONIST_NOTES}`);
+    }
   });
 
   it('get: omits notes for a code whose Notes cell is empty', async () => {
@@ -802,6 +811,41 @@ describe('lookupTaxonomyTool everyday terms (#46)', () => {
     expect(structured.error?.data?.reason).toBe('no_match');
     expect(structured.error?.message).toBe('"and" names no specialty on its own.');
     expect(text).toMatch(/Recovery:.*mode browse/);
+  });
+});
+
+describe('lookupTaxonomyTool short tokens and qualified therapy (#49, #50)', () => {
+  it('resolve: a two-letter token with no alias row ("im") is a plain no_match on both surfaces (#49)', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'im' });
+    expect(isError).toBe(true);
+    expect(structured.error?.code).toBe(JsonRpcErrorCode.NotFound);
+    expect(structured.error?.data?.reason).toBe('no_match');
+    expect(structured.error?.message).toBe('No taxonomy matched "im".');
+    expect(text).toContain('No taxonomy matched "im".');
+    expect(text).toContain('Recovery:');
+  });
+
+  it('resolve: "dr" names no specialty on its own and points to browse the physician grouping', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'dr' });
+    expect(isError).toBe(true);
+    expect(structured.error?.data?.reason).toBe('no_match');
+    expect(structured.error?.message).toBe('"dr" names no specialty on its own.');
+    expect(text).toContain('grouping "Allopathic & Osteopathic Physicians"');
+  });
+
+  it('resolve: "physical therapy" leads with Physical Therapist on both surfaces (#50)', async () => {
+    const { isError, structured, text } = await run({ mode: 'resolve', query: 'physical therapy' });
+    expect(isError).toBe(false);
+    expect(structured.matches?.slice(0, 3).map((m) => m.code)).toEqual([
+      '225100000X',
+      '225200000X',
+      '261QP2000X',
+    ]);
+    expect(text).toMatch(/^## Taxonomy matches \(\d+\)\n\n### Physical Therapist\n/);
+    expect(text.indexOf('### Physical Therapist\n')).toBeLessThan(
+      text.indexOf('### Physical Therapy Assistant'),
+    );
+    expect(text).toContain('### Physical Therapy Clinic/Center');
   });
 });
 

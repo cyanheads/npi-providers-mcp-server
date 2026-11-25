@@ -6,6 +6,8 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { headingText } from '@/mcp-server/heading-text.js';
 import {
   describeInactiveEntries,
   getTaxonomyService,
@@ -32,7 +34,10 @@ type NameCount = z.infer<typeof NameCountSchema>;
 function renderNameCounts(heading: string, rows: readonly NameCount[]): string {
   return [
     `## ${heading} (${rows.length})`,
-    ...rows.map((r) => `- ${r.name} — ${r.count} ${r.count === 1 ? 'entry' : 'entries'}`),
+    ...rows.map(
+      (r) =>
+        `- ${escapeMarkdownInline(r.name)} — ${r.count} ${r.count === 1 ? 'entry' : 'entries'}`,
+    ),
   ].join('\n');
 }
 
@@ -96,14 +101,20 @@ function toEntry(e: TaxonomyEntry): z.infer<typeof EntrySchema> {
   };
 }
 
+/**
+ * One entry as Markdown, NUCC text escaped so a CommonMark parse reads it back (the
+ * definitions and Notes hold `- ` list lines). A parenthetical is escaped as one run
+ * with its authored parentheses, so its value can't complete syntax with them.
+ */
 function renderEntry(e: z.infer<typeof EntrySchema>): string {
+  const replaced = e.replacedBy ? ` ${escapeMarkdownInline(`(replaced by ${e.replacedBy})`)}` : '';
   const lines = [
-    `### ${e.displayName}`,
-    `**Code:** ${e.code} | **Section:** ${e.section} | **Status:** ${e.status}${e.replacedBy ? ` (replaced by ${e.replacedBy})` : ''}`,
-    `**Hierarchy:** ${e.grouping} › ${e.classification}${e.specialization ? ` › ${e.specialization}` : ''}`,
+    `### ${headingText(e.displayName)}`,
+    `**Code:** ${escapeMarkdownInline(e.code)} | **Section:** ${e.section} | **Status:** ${e.status}${replaced}`,
+    `**Hierarchy:** ${escapeMarkdownInline(`${e.grouping} › ${e.classification}${e.specialization ? ` › ${e.specialization}` : ''}`)}`,
   ];
-  if (e.definition) lines.push(e.definition);
-  if (e.notes) lines.push(`**Notes:** ${e.notes}`);
+  if (e.definition) lines.push(escapeMarkdownInline(e.definition));
+  if (e.notes) lines.push(`**Notes:** ${escapeMarkdownInline(e.notes)}`);
   return lines.join('\n');
 }
 

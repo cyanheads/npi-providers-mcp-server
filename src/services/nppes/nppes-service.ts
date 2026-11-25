@@ -392,28 +392,68 @@ function taxonomyReference(raw: RawNppesTaxonomy, taxonomy: TaxonomyLookup): Tax
 }
 
 /** The `primary: true` taxonomy, falling back to the first taxonomy when none is flagged. */
-function pickPrimaryTaxonomy(raw: RawNppesResult): RawNppesTaxonomy | undefined {
-  const taxes = raw.taxonomies ?? [];
+function pickPrimaryTaxonomy(taxes: readonly RawNppesTaxonomy[]): RawNppesTaxonomy | undefined {
   return taxes.find((t) => t.primary) ?? taxes[0];
 }
 
 /**
+ * Which of a row's taxonomies the search's `taxonomy_description` filter counts, or
+ * undefined with no filter. Text sent as written counts every taxonomy by the registry's
+ * own rule ({@link matchesTaxonomyFilter}). Text from resolved taxonomies (`taxonomyCodes`)
+ * also reaches every other code that starts with it, so there a code the bundled NUCC set
+ * holds counts only as one of their codes, and a row is never kept or marked through another
+ * code that merely shares their text. A code newer than the bundled set can belong only to a
+ * classification-level resolved code, which stands for every code of its classification: it
+ * counts when its served description is the classification of a classification-level resolved
+ * code or starts with `<classification>, `, and its first four characters are those of a
+ * resolved code, which keeps it in that classification's grouping (Legal Medicine and
+ * Specialist/Technologist each head a second, unrelated classification). Without a
+ * classification-level resolved code no new code counts, and one served without a description
+ * never does.
+ */
+function taxonomyFilterCounts(
+  search: SummaryContext,
+  taxonomy: TaxonomyLookup,
+): ((t: RawNppesTaxonomy) => boolean) | undefined {
+  const { taxonomyCodes: codes, taxonomyFilter: filter } = search;
+  if (!filter) return;
+  if (!codes) {
+    return (t) => matchesTaxonomyFilter(filter, trimmed(t.desc), taxonomy.get(t.code.trim()));
+  }
+  const classifications = [...codes].flatMap((code) => {
+    const entry = taxonomy.get(code);
+    return entry && !entry.specialization ? [entry.classification.toLowerCase()] : [];
+  });
+  const prefixes = new Set([...codes].map((code) => code.slice(0, 4)));
+  const newCodeCounts = (code: string, served: string | undefined) => {
+    if (!served) return false;
+    const description = served.toLowerCase();
+    return (
+      classifications.some((c) => description === c || description.startsWith(`${c}, `)) &&
+      prefixes.has(code.slice(0, 4))
+    );
+  };
+  return (t) => {
+    const code = t.code.trim();
+    return taxonomy.get(code) ? codes.has(code) : newCodeCounts(code, trimmed(t.desc));
+  };
+}
+
+/**
  * The taxonomy a search row matched its `taxonomy_description` filter through, when it
- * is not the primary one: the first, in registry order, that the registry's own rule
- * passes ({@link matchesTaxonomyFilter}). Absent with no filter, when the primary
- * passes, or when none does — a row is never marked on a guess.
+ * is not the primary one: the first, in registry order, that the filter `counts`, so with
+ * resolved taxonomies the row names a code the caller asked for rather than another code
+ * sharing its text. Absent when the primary counts, or when none does — a row is never
+ * marked on a guess.
  */
 function matchedTaxonomy(
-  raw: RawNppesResult,
+  taxonomies: readonly RawNppesTaxonomy[],
   primary: RawNppesTaxonomy | undefined,
-  filter: string | undefined,
+  counts: (t: RawNppesTaxonomy) => boolean,
   taxonomy: TaxonomyLookup,
 ): TaxonomyReference | undefined {
-  if (!filter || !primary) return;
-  const passes = (t: RawNppesTaxonomy) =>
-    matchesTaxonomyFilter(filter, trimmed(t.desc), taxonomy.get(t.code));
-  if (passes(primary)) return;
-  const match = (raw.taxonomies ?? []).find(passes);
+  if (!primary || counts(primary)) return;
+  const match = taxonomies.find(counts);
   return match && taxonomyReference(match, taxonomy);
 }
 
@@ -423,6 +463,8 @@ interface SummaryContext {
   nameCriteria: NameCriteria;
   /** Whether names matched the authorized official (`name_purpose=AO`), whom the rows then name. */
   officialSearch: boolean;
+  /** The resolved taxonomies' codes, when `taxonomyFilter` came from them. */
+  taxonomyCodes: ReadonlySet<string> | undefined;
   taxonomyFilter: string | undefined;
 }
 
@@ -553,9 +595,11 @@ export class NppesService {
         organizationName: params.organizationName,
       }),
       officialSearch,
+      taxonomyCodes: params.taxonomyCodes,
       taxonomyFilter: params.taxonomyDescription,
     };
-    return results.map((raw) => this.normalizeSummary(raw, search));
+    const counts = taxonomyFilterCounts(search, this.taxonomy);
+    return results.map((raw) => this.normalizeSummary(raw, search, counts));
   }
 
   /**
@@ -572,15 +616,22 @@ export class NppesService {
    * the `LOCATION` (practice) address only — selected by purpose, since the
    * registry's address order varies — and are absent when there is none. Each
    * `practiceLocations[]` row contributes its city/state/ZIP in upstream order;
-   * no `MAILING` row ever reaches the summary. `matchedOtherName` names the other
-   * name the row matched the search's name criteria through, and `matchedTaxonomy`
-   * the non-primary taxonomy it matched the taxonomy filter through, each only when
-   * it provably did. `authorizedOfficial` names the official on an official search's
-   * rows only.
+   * no `MAILING` row ever reaches the summary. `counts` is the search's taxonomy filter
+   * ({@link taxonomyFilterCounts}): `matchesResolvedTaxonomies` says, on a search with
+   * resolved taxonomies only, whether any of the row's taxonomies counts toward them.
+   * `matchedOtherName` names the other name the row matched the search's name criteria
+   * through, and `matchedTaxonomy` the non-primary taxonomy it matched the taxonomy filter
+   * through, each only when it provably did. `authorizedOfficial` names the official on an
+   * official search's rows only.
    */
-  private normalizeSummary(raw: RawNppesResult, search: SummaryContext): ProviderSummary {
+  private normalizeSummary(
+    raw: RawNppesResult,
+    search: SummaryContext,
+    counts: ((t: RawNppesTaxonomy) => boolean) | undefined,
+  ): ProviderSummary {
     const type = TYPE_BY_ENUMERATION[raw.enumeration_type];
-    const primary = pickPrimaryTaxonomy(raw);
+    const taxonomies = raw.taxonomies ?? [];
+    const primary = pickPrimaryTaxonomy(taxonomies);
     return {
       npi: String(raw.number),
       type,
@@ -595,7 +646,11 @@ export class NppesService {
       ...field('primaryTaxonomy', primary && taxonomyReference(primary, this.taxonomy)),
       ...field(
         'matchedTaxonomy',
-        matchedTaxonomy(raw, primary, search.taxonomyFilter, this.taxonomy),
+        counts && matchedTaxonomy(taxonomies, primary, counts, this.taxonomy),
+      ),
+      ...field(
+        'matchesResolvedTaxonomies',
+        search.taxonomyCodes && counts ? taxonomies.some(counts) : undefined,
       ),
       ...cityStateZip((raw.addresses ?? []).find(isPracticeLocation)),
       practiceLocations: (raw.practiceLocations ?? []).map(cityStateZip),

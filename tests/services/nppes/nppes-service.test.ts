@@ -9,7 +9,7 @@ import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
 import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NppesService } from '@/services/nppes/nppes-service.js';
-import { TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
+import { resolvedCodeSet, TaxonomyService } from '@/services/taxonomy/taxonomy-service.js';
 
 const svc = new NppesService('https://npiregistry.cms.hhs.gov/api', 15000, new TaxonomyService());
 const ctx = createMockContext();
@@ -1760,5 +1760,342 @@ describe('NppesService.search matched taxonomy (#44)', () => {
     const row = await searchOne(filter, taxonomies);
     expect(row).toBeDefined();
     expect(row).not.toHaveProperty('matchedTaxonomy');
+  });
+});
+
+describe('NppesService.search resolved taxonomy codes (#51)', () => {
+  type Taxonomy = { code: string; desc?: string | null; primary?: boolean };
+
+  /** Search `text` with resolved `codes` (omitted when undefined) over one row holding `taxonomies`. */
+  async function searchOne(
+    codes: readonly string[] | undefined,
+    taxonomies: Taxonomy[],
+    text = 'Family',
+  ) {
+    const fetchSpy = stubJson({
+      result_count: 1,
+      results: [
+        {
+          number: '1053791517',
+          enumeration_type: 'NPI-1',
+          basic: { first_name: 'PAT', last_name: 'PROVIDER', status: 'A' },
+          taxonomies: taxonomies.map((taxonomy) => ({ primary: false, ...taxonomy })),
+        },
+      ],
+    });
+    const [row] = await svc.search(
+      {
+        taxonomyDescription: text,
+        ...(codes ? { taxonomyCodes: new Set(codes) } : {}),
+        limit: 10,
+        skip: 0,
+      },
+      ctx,
+    );
+    return { row, query: new URL(String(fetchSpy.mock.calls[0]?.[0])).search };
+  }
+
+  const FAMILY_MEDICINE = { code: '207Q00000X', desc: 'Family Medicine' };
+  const FAMILY_NP = { code: '363LF0000X', desc: 'Nurse Practitioner, Family' };
+  const FAMILY_PSYCHOLOGIST = { code: '103TF0000X', desc: 'Psychologist, Family' };
+  const CARDIOLOGY = { code: '207RC0000X', desc: 'Internal Medicine, Cardiovascular Disease' };
+
+  it.each<[string, string[], Taxonomy[], object]>([
+    [
+      'the primary passes the text but holds no resolved code',
+      ['363LF0000X'],
+      [{ ...FAMILY_MEDICINE, primary: true }, FAMILY_NP],
+      { code: '363LF0000X', description: 'Nurse Practitioner, Family' },
+    ],
+    [
+      'an earlier non-primary taxonomy passes the text but holds no resolved code',
+      ['363LF0000X'],
+      [{ ...CARDIOLOGY, primary: true }, FAMILY_PSYCHOLOGIST, FAMILY_NP],
+      { code: '363LF0000X', description: 'Nurse Practitioner, Family' },
+    ],
+    [
+      'it holds two resolved codes: the first in registry order, not in resolved order',
+      ['363LF0000X', '103TF0000X'],
+      [{ ...CARDIOLOGY, primary: true }, FAMILY_PSYCHOLOGIST, FAMILY_NP],
+      { code: '103TF0000X', description: 'Psychologist, Family' },
+    ],
+    [
+      'the primary flag sits on a later taxonomy',
+      ['363LF0000X'],
+      [FAMILY_NP, { ...FAMILY_MEDICINE, primary: true }],
+      { code: '363LF0000X', description: 'Nurse Practitioner, Family' },
+    ],
+    [
+      'the held code is served without a desc',
+      ['363LF0000X'],
+      [
+        { ...FAMILY_MEDICINE, primary: true },
+        { code: '363LF0000X', desc: null },
+      ],
+      { code: '363LF0000X', description: 'Nurse Practitioner, Family', descriptionSource: 'nucc' },
+    ],
+  ])('names the held resolved code when %s', async (_label, codes, taxonomies, expected) => {
+    const { row } = await searchOne(codes, taxonomies);
+    expect(row?.matchedTaxonomy).toEqual(expected);
+  });
+
+  it.each<[string, string[], Taxonomy[]]>([
+    [
+      'the primary holds a resolved code, even with another held later',
+      ['363LF0000X', '103TF0000X'],
+      [{ ...FAMILY_NP, primary: true }, FAMILY_PSYCHOLOGIST],
+    ],
+    [
+      'the row holds no resolved code, though its taxonomies pass the text',
+      ['363LF0000X'],
+      [{ ...FAMILY_MEDICINE, primary: true }, FAMILY_PSYCHOLOGIST],
+    ],
+    ['the row holds no taxonomies', ['363LF0000X'], []],
+  ])('adds no matchedTaxonomy when %s', async (_label, codes, taxonomies) => {
+    const { row } = await searchOne(codes, taxonomies);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('matchedTaxonomy');
+  });
+
+  it('keeps the text rule when the text was sent as written (characterization)', async () => {
+    const { row } = await searchOne(undefined, [
+      { ...CARDIOLOGY, primary: true },
+      FAMILY_PSYCHOLOGIST,
+      FAMILY_NP,
+    ]);
+    expect(row?.matchedTaxonomy).toEqual({
+      code: '103TF0000X',
+      description: 'Psychologist, Family',
+    });
+  });
+
+  // Codes absent from the bundled v26.1 set, as a code NUCC adds in a later release is.
+  const NEW_FAMILY = { code: '207QX0001X', desc: 'Family Medicine, Lifestyle Medicine' };
+  const NEW_CARDIOLOGY = { code: '207RX0001X', desc: 'Internal Medicine, Cardio-Oncology' };
+  const NEW_PEDIATRICS = { code: '2080X0001X', desc: 'Pediatrics, Pediatric Hospital Medicine' };
+  const NEW_CODES = [
+    NEW_FAMILY.code,
+    NEW_CARDIOLOGY.code,
+    NEW_PEDIATRICS.code,
+    '2080X0002X',
+    '2080X0003X',
+    '2080X0004X',
+    '2080X0005X',
+    '2080X0006X',
+    '207QX0003X',
+    '2098X0001X',
+    '208VX0001X',
+    '207KX0001X',
+    '2082X0001X',
+    '363LX0008X',
+    '363LX0009X',
+  ];
+
+  const taxonomy = new TaxonomyService();
+  /** The codes a search resolving `codes` keeps rows by, as npi_search_providers derives them. */
+  const resolvedFrom = (...codes: string[]) => [
+    ...resolvedCodeSet(
+      taxonomy,
+      codes.flatMap((code) => taxonomy.get(code) ?? []),
+    ),
+  ];
+  // Classification level: every bundled code of the classification within its grouping.
+  const PEDIATRICS = resolvedFrom('208000000X');
+  const INTERNAL_MEDICINE = resolvedFrom('207R00000X'); // 207R…, and 207QB0505X Diabetology
+  const LEGAL_MEDICINE_OTHER = resolvedFrom('173000000X'); // not the physician 209800000X
+  // `allergy` sends "Allergy" (207KA0200X first) and also resolves the classification 207K00000X.
+  const ALLERGY = resolvedFrom('207KA0200X', '207K00000X');
+  // `surgery` sends "Surgery" and also resolves the classification Plastic Surgery 208200000X.
+  const SURGERY = resolvedFrom('208600000X', '208200000X');
+  // Specialization level: each code stands for itself.
+  const FAMILY_NP_ONLY = ['363LF0000X'];
+  const PEDIATRIC_NP = ['363LP0200X', '363LP0222X']; // both send "Pediatrics"
+  // Pain Medicine, Pain Medicine: NUCC has no classification-level Pain Medicine code.
+  const PAIN_MEDICINE = ['208VP0000X'];
+
+  it('the new-code fixtures are absent from the bundled set', () => {
+    for (const code of NEW_CODES) expect(taxonomy.get(code), code).toBeUndefined();
+    expect(PEDIATRICS).toContain('208000000X');
+    expect(INTERNAL_MEDICINE).toContain('207QB0505X');
+    expect(LEGAL_MEDICINE_OTHER).toEqual(['173000000X']);
+  });
+
+  it.each<[string, string, readonly string[], Taxonomy[], boolean, object | undefined]>([
+    [
+      'a classification-level search keeps a new code of its classification',
+      'Pediatrics',
+      PEDIATRICS,
+      [{ ...NEW_PEDIATRICS, primary: true }],
+      true,
+      undefined,
+    ],
+    [
+      'a classification-level search names a new code that counts, ahead of a later resolved code',
+      'Pediatrics',
+      PEDIATRICS,
+      [
+        { ...CARDIOLOGY, primary: true },
+        NEW_PEDIATRICS,
+        { code: '2080P0204X', desc: 'Pediatrics, Pediatric Emergency Medicine' },
+      ],
+      true,
+      { code: '2080X0001X', description: 'Pediatrics, Pediatric Hospital Medicine' },
+    ],
+    [
+      'a description equal to the classification counts',
+      'Pediatrics',
+      PEDIATRICS,
+      [{ code: '2080X0002X', desc: 'Pediatrics', primary: true }],
+      true,
+      undefined,
+    ],
+    [
+      'a description in another case counts',
+      'Pediatrics',
+      PEDIATRICS,
+      [{ code: '2080X0003X', desc: 'PEDIATRICS, PEDIATRIC HOSPITAL MEDICINE', primary: true }],
+      true,
+      undefined,
+    ],
+    [
+      "a prefix any resolved code holds counts, not only the classification code's own",
+      'Internal Medicine',
+      INTERNAL_MEDICINE,
+      [{ code: '207QX0003X', desc: 'Internal Medicine, Lifestyle Medicine', primary: true }],
+      true,
+      undefined,
+    ],
+    [
+      'a resolved classification counts its new code when the text sent is a specialization of it',
+      'Allergy',
+      ALLERGY,
+      [{ code: '207KX0001X', desc: 'Allergy & Immunology, Food Allergy', primary: true }],
+      true,
+      undefined,
+    ],
+    [
+      'a resolved classification the text does not name counts its new code',
+      'Surgery',
+      SURGERY,
+      [{ code: '2082X0001X', desc: 'Plastic Surgery, Craniofacial Surgery', primary: true }],
+      true,
+      undefined,
+    ],
+    [
+      'a description with no ", " after the classification never counts',
+      'Pediatrics',
+      PEDIATRICS,
+      [{ code: '2080X0004X', desc: 'Pediatrics Something', primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a description holding the classification past its start never counts',
+      'Pediatrics',
+      PEDIATRICS,
+      [{ code: '2080X0005X', desc: 'Hospital Medicine, Pediatrics, Inpatient', primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      "a description naming the classification under another grouping's prefix never counts",
+      'Legal Medicine',
+      LEGAL_MEDICINE_OTHER,
+      [{ code: '2098X0001X', desc: 'Legal Medicine, Forensic Medicine', primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a new code served without a desc never counts',
+      'Pediatrics',
+      PEDIATRICS,
+      [{ code: '2080X0006X', desc: null, primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a specialization-level search drops a row whose only code is a new "Family Medicine, …"',
+      'Family',
+      FAMILY_NP_ONLY,
+      [{ ...NEW_FAMILY, primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a specialization-level search drops a new "Nurse Practitioner, Family …"',
+      'Family',
+      FAMILY_NP_ONLY,
+      [{ code: '363LX0009X', desc: 'Nurse Practitioner, Family Acute Care', primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a specialization-level search names its resolved code, not an earlier new code sharing the text',
+      'Family',
+      FAMILY_NP_ONLY,
+      [{ ...CARDIOLOGY, primary: true }, NEW_FAMILY, FAMILY_NP],
+      true,
+      { code: '363LF0000X', description: 'Nurse Practitioner, Family' },
+    ],
+    [
+      'a specialization-level search drops a new code under a resolved prefix described as "<text>, …"',
+      'Pediatrics',
+      PEDIATRIC_NP,
+      [{ code: '363LX0008X', desc: 'Pediatrics, Hospital Medicine', primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a specialization-level search drops a new code of a classification its specialization repeats',
+      'Pain Medicine',
+      PAIN_MEDICINE,
+      [{ code: '208VX0001X', desc: 'Pain Medicine, Headache Medicine', primary: true }],
+      false,
+      undefined,
+    ],
+    [
+      'a new code whose description does not start with the text never counts',
+      'Family',
+      FAMILY_NP_ONLY,
+      [{ ...FAMILY_MEDICINE, primary: true }, NEW_CARDIOLOGY],
+      false,
+      undefined,
+    ],
+    [
+      'a bundled code passing the text still counts only as a resolved code',
+      'Family',
+      FAMILY_NP_ONLY,
+      [{ ...FAMILY_MEDICINE, primary: true }, FAMILY_PSYCHOLOGIST],
+      false,
+      undefined,
+    ],
+  ])('with resolved codes, %s', async (_label, text, codes, taxonomies, counted, matched) => {
+    const { row } = await searchOne(codes, taxonomies, text);
+    expect(row?.matchesResolvedTaxonomies).toBe(counted);
+    expect(row?.matchedTaxonomy).toEqual(matched);
+  });
+
+  it('text sent as written counts a new code by the registry rule (characterization)', async () => {
+    const { row } = await searchOne(undefined, [{ ...CARDIOLOGY, primary: true }, NEW_FAMILY]);
+    expect(row).not.toHaveProperty('matchesResolvedTaxonomies');
+    expect(row?.matchedTaxonomy).toEqual({
+      code: '207QX0001X',
+      description: 'Family Medicine, Lifestyle Medicine',
+    });
+  });
+
+  it('says whether a row counts only on a resolved search, and sends the same query', async () => {
+    const withCodes = await searchOne(
+      ['363LF0000X'],
+      [FAMILY_PSYCHOLOGIST, { ...FAMILY_MEDICINE, primary: true }, { code: ' 363LF0000X ' }],
+    );
+    expect(withCodes.row?.matchesResolvedTaxonomies).toBe(true);
+    expect(withCodes.row?.matchedTaxonomy).toMatchObject({ code: '363LF0000X' });
+    const noTaxonomies = await searchOne(['363LF0000X'], []);
+    expect(noTaxonomies.row?.matchesResolvedTaxonomies).toBe(false);
+    const asWritten = await searchOne(undefined, [FAMILY_PSYCHOLOGIST]);
+    expect(asWritten.row).not.toHaveProperty('matchesResolvedTaxonomies');
+    expect(withCodes.query).toBe(asWritten.query);
+    expect(withCodes.query).toBe('?version=2.1&limit=10&skip=0&taxonomy_description=Family');
   });
 });

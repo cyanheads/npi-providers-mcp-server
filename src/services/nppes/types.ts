@@ -318,10 +318,12 @@ export interface AuthorizedOfficialSummary {
  * A compact provider row for search disambiguation. `city`/`state`/`postalCode`
  * come from the primary `LOCATION` address; `practiceLocations` carries each
  * secondary practice location, so a location search can match either.
- * `matchedOtherName` is present only when the row matched the search's name
- * criteria through an other name rather than the current name; `matchedTaxonomy`
- * only when it matched the search's taxonomy filter through a taxonomy other than
- * `primaryTaxonomy`; `authorizedOfficial` only on the rows of an authorized-official
+ * `matchesResolvedTaxonomies` is present only on the rows of a search with resolved
+ * taxonomies, which keeps the rows where it is true. `matchedOtherName` is present only
+ * when the row matched the search's name criteria through an other name rather than the
+ * current name; `matchedTaxonomy` only when it matched the search's taxonomy filter
+ * through a taxonomy other than `primaryTaxonomy` (with resolved taxonomies, the first
+ * counting toward them); `authorizedOfficial` only on the rows of an authorized-official
  * name search, when the registry records a first or last name for the official.
  */
 export interface ProviderSummary extends ProviderLocation {
@@ -329,6 +331,13 @@ export interface ProviderSummary extends ProviderLocation {
   credential?: string;
   matchedOtherName?: MatchedOtherName;
   matchedTaxonomy?: TaxonomyReference;
+  /**
+   * Whether one of the row's taxonomies counts toward the search's resolved taxonomies
+   * (`NppesSearchParams.taxonomyCodes`): a bundled code among them, or a code newer than
+   * the bundled NUCC set that a classification-level one stands for (`taxonomyFilterCounts`
+   * in `nppes-service.ts`). Absent when the search resolved none.
+   */
+  matchesResolvedTaxonomies?: boolean;
   name: string;
   npi: string;
   practiceLocations: ProviderLocation[];
@@ -353,6 +362,15 @@ export interface NppesSearchParams {
   postalCode?: string;
   skip: number;
   state?: string;
+  /**
+   * The codes that count as the resolved taxonomies `taxonomyDescription` came from (a
+   * specialty's candidates or a decoded code, a classification-level code expanded to its
+   * classification); absent when the text was sent as written. Never sent: a row's
+   * taxonomy counts toward them by holding one of these codes, or, for a code the bundled
+   * NUCC set lacks, by belonging to the classification of a classification-level one
+   * (`matchesResolvedTaxonomies`, `matchedTaxonomy`).
+   */
+  taxonomyCodes?: ReadonlySet<string>;
   taxonomyDescription?: string;
   useFirstNameAlias?: boolean;
 }

@@ -102,6 +102,12 @@ describe.each(['node', 'bun'])('%s startup configuration', (runtime) => {
       .object({ anyOf: z.array(z.object({ type: z.string(), maxItems: z.number().optional() })) })
       .parse(properties('npi_get_provider').npis);
     expect(npis.anyOf.find((option) => option.type === 'array')?.maxItems).toBe(clamped ? 100 : 10);
+    // The npi and npi_numbers aliases are accepted, never advertised (#56).
+    const getProvider = z
+      .object({ properties: z.record(z.string(), z.unknown()), required: z.array(z.string()) })
+      .parse(schemas.get('npi_get_provider'));
+    expect(Object.keys(getProvider.properties)).toEqual(['npis']);
+    expect(getProvider.required).toEqual(['npis']);
     expect(schemas.get('npi_lookup_taxonomy')).toMatchObject({ type: 'object' });
     expect(schemas.get('npi_lookup_taxonomy')).not.toHaveProperty('oneOf');
   });

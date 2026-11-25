@@ -8,7 +8,9 @@
  * lookup modes the surface needs: strict-token `resolve` (plain term → codes),
  * exact `get` (by code), and hierarchy `browse`; plus the text that searches the NPPES
  * registry for a code (`taxonomyDescriptionOf`) and the decode of a `taxonomy_description`
- * value that names a code or display name (`decodeTaxonomyDescription`). No external dependency.
+ * value that names a code or display name (`decodeTaxonomyDescription`). A resolved search also
+ * takes its candidate taxonomies (`specialtyCandidates`) and the codes its rows must hold
+ * (`resolvedCodeSet`) from here. No external dependency.
  */
 
 import { TAXONOMY_ENTRIES } from './taxonomy-data.js';
@@ -46,11 +48,13 @@ function stemToken(t: string): string {
     .replace(/s$/, '');
 }
 
-/** Tokenize via normalize + stem, dropping empties. */
+/**
+ * Tokenize index text: its words split as a query's are (`queryWords`, dotted abbreviations
+ * joined), then stemmed, dropping empties. "Clinical Genetics (M.D.)" indexes `md`, the word a
+ * query "M.D." or "MD" carries, never the letters `m` and `d`.
+ */
 function tokenize(s: string): string[] {
-  const n = normalize(s);
-  if (n.length === 0) return [];
-  return n.split(' ').map(stemToken).filter(Boolean);
+  return queryWords(s).map(stemToken).filter(Boolean);
 }
 
 /**
@@ -116,7 +120,7 @@ function searchableText(words: string[]): string {
 /**
  * Words that name no NUCC specialty on their own, so a plain-language phrase routinely
  * carries one that would zero the whole strict-AND query: generic role nouns (the vocabulary
- * says "Physician"/"Surgery", never "doctor" — "heart doctor", "eye doctors"), and the
+ * says "Physician"/"Surgery", never "doctor" — "heart doctor", "eye doctors", "eye dr"), and the
  * connective "and", which NUCC mostly writes as "&" and normalization drops ("obstetrics and
  * gynecology"). Stripped, singular or plural (see `stopWordOf`), from the *query's required
  * terms* only; the index keeps every word. A stripped word still counts toward ranking: an
@@ -126,6 +130,7 @@ function searchableText(words: string[]): string {
  */
 const STOP_WORDS: ReadonlySet<string> = new Set([
   'doctor',
+  'dr',
   'physician',
   'specialist',
   'provider',
@@ -153,8 +158,8 @@ interface QueryTokens {
 /**
  * Join a dotted abbreviation — single letters separated by periods — into one word:
  * "P.A." → "PA", "c.r.n.a" → "crna". Normalization would otherwise split it into one-letter
- * tokens. "Ph.D." is not a run of single letters and is left alone. Query-side only; the
- * index keeps NUCC's own text.
+ * tokens. "Ph.D." is not a run of single letters and is left alone. Applied to query and
+ * index text alike, so NUCC's "(M.D.)" and "(D.M.D.)" index as `md` and `dmd`.
  */
 function joinDottedLetters(s: string): string {
   return s.replace(/(?<![\p{L}\p{N}])\p{L}(?:\.\p{L})+(?![\p{L}\p{N}])\.?/gu, (run) =>
@@ -169,7 +174,13 @@ function queryWords(s: string): string[] {
 }
 
 /** Stop words that name a physician, so a query of them points at the physician grouping. */
-const PHYSICIAN_STOP_WORDS: ReadonlySet<string> = new Set(['doctor', 'physician', 'md', 'do']);
+const PHYSICIAN_STOP_WORDS: ReadonlySet<string> = new Set([
+  'doctor',
+  'dr',
+  'physician',
+  'md',
+  'do',
+]);
 
 /**
  * Whether a query is made only of stop words (singular or plural), and so names no specialty:
@@ -222,15 +233,21 @@ function tokenizeQuery(s: string): QueryTokens {
  *     Pathologist", `primary care` and `pcp` → Family and Internal Medicine, `general
  *     practitioner` → General Practice, `pain management` → Pain Medicine, `nursing home` →
  *     the skilled and intermediate-care nursing facilities.
- *   - Abbreviations: `ent` (Otolaryngology), `obgyn`, `gp`, `gi`, `id` (Infectious Disease),
- *     `pt`/`ot` (Physical and Occupational Therapist); credentials `rn`, `np`, `pa`, `crna`,
- *     `lpn`, `lvn`, `emt`, and `er` (Emergency Medicine), each to the NUCC name of that
- *     profession.
+ *   - Abbreviations: `ent` (Otolaryngology), `obgyn`, `ob` (Obstetrics), `gy` (Gynecology),
+ *     `mr` (MRI), `gp`, `gi`, `id` (Infectious Disease), `pt`/`ot` (Physical and Occupational
+ *     Therapist), `em` (every Emergency label, Emergency Medicine first; "EMS" stems to it);
+ *     credentials `rn`, `np`, `pa`, `crna`, `lpn`, `lvn`, `emt`, `at` (Athletic Trainer),
+ *     `dmd`/`dd` ("DMD"/"DDS", Dentist), and `er` (Emergency Medicine), each to the NUCC name
+ *     of that profession.
+ *   - Word forms NUCC varies: `recreational` → "Recreation Therapist" (NUCC also writes
+ *     "Recreational Therapist Assistant").
  * Keys and aliases are written in the stemmed form `stemToken` produces — "infectious" is
  * `infectiou`, "arthritis" `arthriti` — or they never compare equal to anything.
  * Whole-word matching of the key keeps a short abbreviation from landing inside an
  * unrelated word: bare "ent" reaches Otolaryngology, never "gastroENTerology"; "ot" never
- * "OTolaryngology". Terms whose own word already names their specialty (radiology,
+ * "OTolaryngology". A key of one or two letters gets a row only where a word start was its
+ * sole route to the right entry: such a token without a row matches only a whole word (see
+ * `MAX_WHOLE_WORD_LENGTH`). Terms whose own word already names their specialty (radiology,
  * neurology, …) need no alias. Deterministic lexical normalization — the same category as
  * the stemming above.
  */
@@ -268,11 +285,16 @@ const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   prostate: ['urolog'],
   bladder: ['urolog'],
   obgyn: ['obstetric', 'gynecolog'],
+  ob: ['obstetric'],
+  gy: ['gynecolog'], // "gy", "OB/GY": what "gyn" reaches
+  mr: ['mri'], // "MR", "MR imaging": the two MRI entries
+  em: ['emergency'], // also "EMS"; Emergency Medicine leads on the shorter label
   gp: ['general practice'],
   gi: ['gastroenterolog'],
   id: ['infectiou disease'], // stemmed "infectious disease"
   pt: ['physical therap'],
   ot: ['occupational therap'],
+  recreational: ['recreation'],
   'speech therap': ['speech language patholog'], // "speech therapist"
   'speech therapy': ['speech language patholog'],
   'primary care': ['family medicine', 'internal medicine'],
@@ -290,6 +312,9 @@ const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
   lvn: ['licensed vocational nurse'],
   emt: ['emergency medical technic'], // every level; PREFERRED_ENTRIES puts Basic first
   er: ['emergency medicine'],
+  at: ['athletic trainer'],
+  dmd: ['dent'], // stemmed "dentist"; PREFERRED_ENTRIES puts Dentist ahead of the physician tier
+  dd: ['dent'], // stemmed "dds"
 };
 
 /**
@@ -297,18 +322,37 @@ const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
  * "therapist") also starts "therapy" and "therapeutic", which in NUCC name treatments
  * and physician specialties (Therapeutic Radiology, Nuclear Imaging & Therapy), not the
  * profession. A qualifier keeps the wider match: "radiation therapist" still reaches
- * Radiation Therapy, "occupational therapist" the Occupational Therapy Assistant.
+ * Radiation Therapy, "occupational therapist" the Occupational Therapy Assistant. The
+ * reverse holds for a qualified "therapy", which also names the profession (`WORD_FORMS`).
  */
 const WHOLE_WORD_WHEN_ALONE: ReadonlySet<string> = new Set(['therap']);
 
 /**
- * A required query term — one token, or a two-token alias phrase — with its aliases and
- * whether the term itself must match a whole word (aliased keys, one-letter tokens, and
- * `WHOLE_WORD_WHEN_ALONE` stems queried alone) rather than a word start. A single letter
- * as a word start would match every word beginning with it.
+ * Indexed words a token also matches whole when the query has another term, ranked as the
+ * token itself, not as an alias. The stemmer keeps "therapy" apart from "therapist" (`therap`),
+ * so a bare "therapy" stays on treatment labels, but "physical therapy" names the Physical
+ * Therapist as well as the Physical Therapy Assistant and Clinic/Center. Matched as the word
+ * itself, a facility the query names ("physical therapy clinic") keeps its lead; an alias match
+ * would outrank it.
+ */
+const WORD_FORMS: Readonly<Record<string, readonly string[]>> = { therapy: ['therap'] };
+
+/**
+ * The longest stemmed token that matches only a whole word, never a word start: one or two
+ * letters starting a word are a coincidence ("im" → Imaging, "ed" → Educator). Such a token
+ * reaches a longer word only through a `TOKEN_ALIASES` row (`ob`, `em`, `pa`, …).
+ */
+const MAX_WHOLE_WORD_LENGTH = 2;
+
+/**
+ * A required query term — one token, or a two-token alias phrase — with its aliases, the
+ * indexed words it also matches whole (`WORD_FORMS`), and whether the term itself must match
+ * a whole word (aliased keys, tokens of up to `MAX_WHOLE_WORD_LENGTH` letters, and
+ * `WHOLE_WORD_WHEN_ALONE` stems queried alone) rather than a word start.
  */
 interface QueryTerm {
   aliases: readonly string[];
+  forms: readonly string[];
   text: string;
   wholeWord: boolean;
 }
@@ -328,13 +372,21 @@ function toTerms(tokens: readonly string[]): QueryTerm[] {
     const phrase = i + 1 < tokens.length ? `${tokens[i]} ${tokens[i + 1]}` : '';
     const phraseAliases = lookup(TOKEN_ALIASES, phrase);
     if (phraseAliases) {
-      terms.push({ text: phrase, aliases: phraseAliases, wholeWord: true });
+      terms.push({ text: phrase, aliases: phraseAliases, forms: [], wholeWord: true });
       i += 2;
     } else {
       const text = tokens[i] as string;
       const aliases = lookup(TOKEN_ALIASES, text) ?? [];
-      const alone = tokens.length === 1 && WHOLE_WORD_WHEN_ALONE.has(text);
-      terms.push({ text, aliases, wholeWord: aliases.length > 0 || alone || text.length === 1 });
+      const alone = tokens.length === 1;
+      terms.push({
+        text,
+        aliases,
+        forms: alone ? [] : (lookup(WORD_FORMS, text) ?? []),
+        wholeWord:
+          aliases.length > 0 ||
+          (alone && WHOLE_WORD_WHEN_ALONE.has(text)) ||
+          text.length <= MAX_WHOLE_WORD_LENGTH,
+      });
       i += 1;
     }
   }
@@ -364,6 +416,7 @@ export const PREFERRED_ENTRIES: Readonly<Record<string, string>> = {
   pharmac: '183500000X', // Pharmacist, not Clinical Pharmacology (a physician)
   emt: '146N00000X', // Basic Emergency Medical Technician, not the shorter-named Paramedic
   foot: '213E00000X', // Podiatrist, not Orthopaedic Foot and Ankle Surgery (a physician)
+  dmd: '122300000X', // Dentist, not the physician Oral & Maxillofacial Surgery (D.M.D.)
   hormone: '207RE0101X', // Endocrinology, Diabetes & Metabolism, not Reproductive Endocrinology
   thyroid: '207RE0101X', // Endocrinology, Diabetes & Metabolism
 };
@@ -454,7 +507,10 @@ interface SearchText {
 export interface ResolveResult {
   /** Inactive entries the query matched, sorted by code — not ranked, not paged. */
   inactiveMatches: TaxonomyEntry[];
-  /** The ranked page of active matches (`slice(skip, skip + limit)`). */
+  /**
+   * The ranked page of active matches (`slice(skip, skip + limit)`); `specialtyCandidates`
+   * adds the later same-text candidates past its cap.
+   */
   matches: TaxonomyEntry[];
 }
 
@@ -700,10 +756,12 @@ export class TaxonomyService {
    * (`COMBINING_FORMS`: "neuroradiology" is matched by "radiologist"). The query is first
    * stripped of generic noise words ("doctor", "specialist", …) and mapped through
    * `TOKEN_ALIASES`, so "heart doctor" reduces to "heart" and "ent" reaches
-   * Otolaryngology. Aliased keys match as whole words, so a short abbreviation can't land
-   * inside an unrelated word. No fuzzy fallback — a weak query is better served by an
-   * honest "no match, browse the hierarchy" than an approximate guess the caller can't
-   * audit.
+   * Otolaryngology. Aliased keys and tokens of one or two letters match as whole words, so a
+   * short abbreviation can't land inside an unrelated word ("im" never reaches Imaging). In a
+   * query with another term, "therapy" also matches the word "Therapist" (`WORD_FORMS`), so
+   * "physical therapy" reaches the Physical Therapist. No fuzzy fallback — a weak query is
+   * better served by an honest "no match, browse the hierarchy" than an approximate guess the
+   * caller can't audit.
    *
    * Ranking is a chain of transparent, rule-based signals (each lowest-first; see
    * `ResolveHit`): preferred general entry for a bare term (`PREFERRED_ENTRIES`) → the
@@ -745,21 +803,26 @@ export class TaxonomyService {
       if (!text) continue;
       const { hay, self } = text;
 
-      // Every query term must match via the term itself or one of its aliases, at a word
-      // start. Aliased keys (eye, ent, obgyn, …) and a lone `therap` must match a whole
-      // word, so a short abbreviation can't land inside an unrelated one.
+      // Every query term must match via the term itself, one of its whole word forms, or one
+      // of its aliases at a word start. Aliased keys (eye, ent, obgyn, …), tokens of one or two
+      // letters, and a lone `therap` must match a whole word, so a short abbreviation can't
+      // land inside an unrelated one. A word form counts as the term itself.
       let allMatch = true;
       let allMatchSelfName = true;
       let matchedAnAlias = false;
-      for (const { text: term, aliases, wholeWord } of terms) {
-        const inHay = wholeWord ? hasWord(hay, term) : startsWord(hay, term);
+      for (const { text: term, aliases, forms, wholeWord } of terms) {
+        const inHay =
+          (wholeWord ? hasWord(hay, term) : startsWord(hay, term)) ||
+          forms.some((f) => hasWord(hay, f));
         const aliasInHay = aliases.some((a) => startsWord(hay, a));
         if (!inHay && !aliasInHay) {
           allMatch = false;
           break;
         }
         if (aliasInHay && !inHay) matchedAnAlias = true;
-        const inSelf = wholeWord ? hasWord(self, term) : startsWord(self, term);
+        const inSelf =
+          (wholeWord ? hasWord(self, term) : startsWord(self, term)) ||
+          forms.some((f) => hasWord(self, f));
         if (!inSelf && !aliases.some((a) => startsWord(self, a))) {
           allMatchSelfName = false;
         }
@@ -875,6 +938,61 @@ export class TaxonomyService {
           foldAnd(normalize(entry.classification)) === classification),
     );
   }
+}
+
+// --- Resolved taxonomies of a specialty search ---
+
+/**
+ * The candidates a specialty term resolves to for a search: `resolveWithInactive`'s first
+ * `limit` matches, then every later match that sends the first one's registry text
+ * (`taxonomyDescriptionOf`, case-insensitive) at the same level — specialization or
+ * classification — in rank order. The registry answers that text with every code that sends
+ * it, so the cap never decides which of those codes a search keeps; a same-text code at the
+ * other level (the physician Pediatrics classification and the nursing Pediatrics
+ * specializations) is a different specialty and stays out. `inactiveMatches` passes through.
+ */
+export function specialtyCandidates(
+  taxonomy: TaxonomyService,
+  query: string,
+  limit: number,
+): ResolveResult {
+  const { matches, inactiveMatches } = taxonomy.resolveWithInactive(query, taxonomy.size);
+  const [first] = matches;
+  if (!first) return { matches, inactiveMatches };
+  const text = taxonomyDescriptionOf(first).toLowerCase();
+  const specialization = Boolean(first.specialization);
+  const sendsFirstText = (entry: TaxonomyEntry) =>
+    Boolean(entry.specialization) === specialization &&
+    taxonomyDescriptionOf(entry).toLowerCase() === text;
+  return {
+    matches: [...matches.slice(0, limit), ...matches.slice(limit).filter(sendsFirstText)],
+    inactiveMatches,
+  };
+}
+
+/**
+ * The codes a search row must hold one of to match the resolved taxonomies `entries`. A
+ * specialization code stands for itself. A classification-level code stands for every bundled
+ * code of its classification, inactive ones included, since the registry matches its text
+ * against each of them; the classification is scoped to the entry's grouping, where two
+ * names (Legal Medicine, Specialist/Technologist) each head a second, unrelated classification.
+ */
+export function resolvedCodeSet(
+  taxonomy: TaxonomyService,
+  entries: readonly TaxonomyEntry[],
+): ReadonlySet<string> {
+  const codes = new Set<string>();
+  for (const entry of entries) {
+    if (entry.specialization) {
+      codes.add(entry.code);
+      continue;
+    }
+    const members = taxonomy.browse({ classification: entry.classification, limit: taxonomy.size });
+    for (const member of members) {
+      if (member.grouping === entry.grouping) codes.add(member.code);
+    }
+  }
+  return codes;
 }
 
 // --- Init / accessor pattern ---

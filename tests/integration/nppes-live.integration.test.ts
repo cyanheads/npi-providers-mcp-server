@@ -2,8 +2,9 @@
  * @fileoverview Live NPPES checks for the other-name marking (#26), the
  * postal-prefix continuation past the 1200-match window (#12), the NUCC fill for
  * taxonomy descriptions the registry serves blank (#43), the matched-taxonomy
- * marking (#44), and the authorized-official name search (#45). They call the real
- * registry sequentially (~125 requests in all), so
+ * marking (#44), the authorized-official name search (#45), the resolved-code
+ * filter (#51), and the exact value a postal split adds (#54). They call the real
+ * registry sequentially (~139 requests in all), so
  * they run only with `NPPES_LIVE=1` (`NPPES_LIVE=1 bunx vitest run --project
  * integration nppes-live`); a plain `bun run test` skips them.
  * @module tests/integration/nppes-live.integration.test
@@ -37,6 +38,7 @@ interface Surface {
   nextPage?: { skip: number; limit: number };
   notice?: string;
   providers: Row[];
+  resolvedTaxonomies?: { code: string; description: string }[];
 }
 
 /** One live tool call through the public contract, spaced 150 ms after the last. */
@@ -72,7 +74,7 @@ async function listAll(input: z.input<typeof searchProvidersTool.input>): Promis
 
 const lastWord = (name: string) => name.split(' ').at(-1);
 
-describe.runIf(process.env.NPPES_LIVE === '1')('live NPPES (#12, #26, #43, #44, #45)', () => {
+describe.runIf(process.env.NPPES_LIVE === '1')('live NPPES (#12, #26, #43, #44, #45, #51)', () => {
   beforeAll(() => {
     initTaxonomyService();
     initNppesService();
@@ -117,15 +119,15 @@ describe.runIf(process.env.NPPES_LIVE === '1')('live NPPES (#12, #26, #43, #44, 
     expect(cardiology.notice).toContain(
       `${marked.length} of ${cardiology.providers.length} row(s) matched the specialty filter through a taxonomy other than their primary specialty`,
     );
-    const startsCardiovascularDisease = /(^|, )Cardiovascular Disease/;
+    // A resolved specialty marks the first resolved code a row holds (#51).
+    const resolved = new Set(cardiology.resolvedTaxonomies?.map((t) => t.code));
+    expect(resolved.has('207RC0000X')).toBe(true);
     for (const row of cardiology.providers) {
-      if (startsCardiovascularDisease.test(row.primaryTaxonomy?.description ?? '')) {
+      if (resolved.has(row.primaryTaxonomy?.code ?? '')) {
         expect(row.matchedTaxonomy).toBeUndefined();
       }
     }
-    for (const row of marked) {
-      expect(row.matchedTaxonomy?.description).toMatch(startsCardiovascularDisease);
-    }
+    for (const row of marked) expect(resolved.has(row.matchedTaxonomy?.code ?? '')).toBe(true);
 
     // Prefix, not substring: a primary that only contains "Surgery" is marked.
     const surgery = await search({
@@ -142,6 +144,36 @@ describe.runIf(process.env.NPPES_LIVE === '1')('live NPPES (#12, #26, #43, #44, 
     expect(
       surgeryMarked.some((row) => /\bSurgery\b/.test(row.primaryTaxonomy?.description ?? '')),
     ).toBe(true);
+  }, 60_000);
+
+  it('keeps only the family nurse practitioners a "Family" search reaches, and names the next page (#51)', async () => {
+    const page = await search({
+      specialty: 'family nurse practitioner',
+      city: 'SEATTLE',
+      state: 'WA',
+      limit: 200,
+    });
+    expect(page.resolvedTaxonomies).toEqual([{ code: '363LF0000X', description: 'Family' }]);
+    expect(page.providers.length).toBeGreaterThan(0);
+    // A kept row's primary holds the code, or matchedTaxonomy names it.
+    for (const row of page.providers) {
+      expect((row.matchedTaxonomy ?? row.primaryTaxonomy)?.code).toBe('363LF0000X');
+    }
+    // The registry page was full of Family Medicine as well, and still names the next page.
+    expect(page.notice).toMatch(/\d+ row\(s\) holding no resolved taxonomy code were filtered out/);
+    expect(page.nextPage).toEqual({ skip: 200, limit: 200 });
+
+    // The full records of rows marked through a non-primary taxonomy hold 363LF0000X: one
+    // NPI per call, since a batch decodes its NPIs concurrently.
+    const marked = page.providers.filter((row) => row.matchedTaxonomy).slice(0, 3);
+    expect(marked.length).toBeGreaterThan(0);
+    for (const row of marked) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const result = await runToolContract(getProviderTool, { npis: row.npi });
+      expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+      const [record] = (result.structuredContent as { found: ProviderRecord[] }).found;
+      expect(record?.taxonomies.map((t) => t.code)).toContain('363LF0000X');
+    }
   }, 60_000);
 
   it('marks the other-name Smiths that lead a last_name=Smith search, and only those (#26)', async () => {
@@ -267,4 +299,22 @@ describe.runIf(process.env.NPPES_LIVE === '1')('live NPPES (#12, #26, #43, #44, 
     expect(missing).toEqual([]);
     expect(extra.length).toBeLessThanOrEqual(repeats);
   }, 600_000);
+
+  it('the exact value and ten children of the 6151 split union to the parent search, and only the exact value reaches NPI 1659663912 (#54)', async () => {
+    const parent = await listAll({ postal_code: '6151*' });
+    const continuation = postalContinuation('6151*');
+    const codes = 'postalCodes' in continuation ? continuation.postalCodes : [];
+    expect(codes).toEqual(['6151', ...[...'0123456789'].map((d) => `6151${d}*`)]);
+    // The postal_code values that reached each NPI. The Australian practice at exactly 6151
+    // has no 5th digit for any child to match.
+    const reachedBy = new Map<string, string[]>();
+    for (const postal_code of codes) {
+      for (const row of await listAll({ postal_code })) {
+        reachedBy.set(row.npi, [...(reachedBy.get(row.npi) ?? []), postal_code]);
+      }
+    }
+    console.info(`6151* split: parent ${parent.length}, union ${reachedBy.size}`);
+    expect([...reachedBy.keys()].sort()).toEqual(parent.map((row) => row.npi).sort());
+    expect(reachedBy.get('1659663912')).toEqual(['6151']);
+  }, 120_000);
 });
