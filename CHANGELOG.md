@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.5.2](changelog/0.5.x/0.5.2.md) — 2026-11-25
+
+Resolved specialty searches keep only rows holding a resolved code, postal continuations name the exact value, content[] text is Markdown-escaped, npi_get_provider accepts npi and npi_numbers, and short-token, therapy, and dotted-credential resolver fixes.
+
 ## [0.5.1](changelog/0.5.x/0.5.1.md) — 2026-11-19
 
 Authorized-official search, NUCC codes in taxonomy_description, matched-taxonomy and NUCC description fields, browse listings, and postal-code and specialty-resolution fixes.
